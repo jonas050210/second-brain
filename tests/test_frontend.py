@@ -119,8 +119,11 @@ def test_entity_browser_and_palette_markup():
     assert 'id="palette"' in html
     assert 'id="privacy-info"' in html
     assert 'id="backup-list"' in html
+    assert 'id="gf-layout"' in html
+    assert 'id="set-auto-backup"' in html
     assert "function loadBrowse" in js
     assert "function openPalette" in js
+    assert "function runGraphLayout" in js
     assert "function restore" not in js or "/backup/restore" in js
 
 

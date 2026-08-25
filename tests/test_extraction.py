@@ -176,6 +176,90 @@ def test_skill_extraction():
     assert types.get("Public Speaking") == "skill"
 
 
+def test_mentioned_in_text_rejects_inventions():
+    assert extract.mentioned_in_text("Python", "I am learning Python")
+    assert extract.mentioned_in_text("Game Engine", "I want to build a game engine")
+    assert not extract.mentioned_in_text("Google", "I am learning Python")
+    assert extract.mentioned_in_text("User", "hello there")
+
+
+def test_llm_invented_facts_rejected(fake_ollama, monkeypatch):
+    def fake_chat(model, messages, temperature=0.0, format_json=False, timeout=None):
+        return json.dumps({
+            "entities": [
+                {"name": "Python", "type": "technology", "description": "", "confidence": 0.9},
+                {"name": "Google", "type": "organization", "description": "employer", "confidence": 0.99},
+            ],
+            "relationships": [
+                {"source": "User", "target": "Python", "relation": "learning", "confidence": 0.9},
+                {"source": "User", "target": "Google", "relation": "works_at", "confidence": 0.99},
+            ],
+            "stops": [],
+        })
+    monkeypatch.setattr("backend.ollama.chat", fake_chat)
+    r = extract.extract("I am learning Python")
+    names = {e["name"] for e in store.all_entities()}
+    assert "Python" in names
+    assert "Google" not in names
+    uid = store.ensure_user_entity()
+    google = store.find_entity_by_name("Google")
+    assert google is None
+    assert not any(
+        rel["relation"] == "works_at" for rel in r["relationships"]
+    )
+
+
+def test_merge_llm_with_fallback_fills_gaps(fake_ollama, monkeypatch):
+    def fake_chat(model, messages, temperature=0.0, format_json=False, timeout=None):
+        return json.dumps({
+            "entities": [{"name": "Python", "type": "technology", "confidence": 0.9}],
+            "relationships": [
+                {"source": "User", "target": "Python", "relation": "learning", "confidence": 0.9},
+            ],
+            "stops": [],
+        })
+    monkeypatch.setattr("backend.ollama.chat", fake_chat)
+    r = extract.extract("I am learning Python and Rust")
+    names = {e["name"] for e in store.all_entities()}
+    assert "Python" in names and "Rust" in names
+    assert r["used_fallback"] is False
+    uid = store.ensure_user_entity()
+    rust = store.find_entity_by_name("Rust")
+    assert store.relationship_active(uid, rust["id"], "learning")
+
+
+def test_correction_meant_not():
+    extract.extract("I prefer Python")
+    r = extract.extract("I meant Rust not Python")
+    uid = store.ensure_user_entity()
+    py = store.find_entity_by_name("Python")
+    rust = store.find_entity_by_name("Rust")
+    assert rust is not None
+    py_rel = db.query(
+        "SELECT * FROM relationships WHERE source_id=? AND target_id=? AND relation='prefers'",
+        (uid, py["id"]))
+    rust_rel = db.query(
+        "SELECT * FROM relationships WHERE source_id=? AND target_id=? AND relation='prefers'",
+        (uid, rust["id"]))
+    assert py_rel and py_rel[0]["status"] == "superseded"
+    assert rust_rel and rust_rel[0]["status"] == "active"
+    assert r["superseded"] or rust_rel
+
+
+def test_large_input_does_not_crash():
+    blob = ("I am learning Python. " * 2000)
+    r = extract.extract(blob)
+    assert r["trivial"] is False
+    assert store.find_entity_by_name("Python") is not None
+
+
+def test_malformed_llm_json_falls_back(fake_ollama, monkeypatch):
+    monkeypatch.setattr("backend.ollama.chat", lambda *a, **k: "<<<not json>>>")
+    r = extract.extract("I am learning Python")
+    assert r["used_fallback"] is True
+    assert store.find_entity_by_name("Python") is not None
+
+
 def test_confidence_threshold_respected(no_ollama, monkeypatch):
     monkeypatch.setattr(db, "get_setting_float",
                         lambda k, d: 0.99 if k == "confidence_threshold" else d)

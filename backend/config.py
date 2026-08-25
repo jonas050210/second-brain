@@ -59,6 +59,9 @@ DEFAULT_CONFIDENCE_THRESHOLD = 0.4   # drop entities/relations below this
 DEFAULT_MERGE_SIMILARITY = 0.92      # cosine similarity at which entities auto-merge
 VECTOR_SEARCH_K = 8                  # top-k vector results
 SHORT_TERM_CONTEXT_TURNS = 10        # recent messages fed as conversation context
+MAX_CHAT_CHARS = 16000               # hard cap on a single chat / extract payload
+MAX_EXTRACT_CHARS = 8000             # extractor window (head of the message)
+DEFAULT_AUTO_BACKUP_HOURS = 24.0     # 0 disables scheduled local backups
 
 # --------------------------------------------------------------------------
 # Memory types (categories). Kept rich but non-forcing: the extractor only

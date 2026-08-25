@@ -421,6 +421,8 @@ def test_frontend_served(client):
     assert 'id="privacy-info"' in html
     assert 'id="graph-path"' in html
     assert 'id="import-notes"' in html
+    assert 'id="gf-layout"' in html
+    assert 'id="set-auto-backup"' in html
 
 
 def test_core_loop_chat_memory_graph_search_rag(client):

@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi.testclient import TestClient  # noqa: E402
 
 from backend import app as app_module  # noqa: E402
+from backend import store  # noqa: E402
 
 
 @pytest.fixture
@@ -199,7 +200,35 @@ def test_import_notes_extracts_paragraphs(client):
 
 def test_health_reports_version(client):
     h = client.get("/api/health").json()
-    assert h.get("version")
+    assert h.get("version") == "2.3.0"
+    assert h.get("db_ok") is True
+    assert "auto_backup" in h
+
+
+def test_graph_groups_endpoint(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    r = client.get("/api/graph/groups")
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body, dict)
+    flat = {n["name"] for rows in body.values() for n in rows}
+    assert "Rust" in flat
+
+
+def test_auto_backup_setting_roundtrip(client):
+    r = client.post("/api/settings", json={"auto_backup_hours": 12})
+    assert r.status_code == 200
+    assert abs(r.json()["auto_backup_hours"] - 12) < 1e-6
+
+
+def test_chat_stream_emits_token_after_extract(client):
+    with client.stream("POST", "/api/chat/stream",
+                       json={"content": "I am learning Python"}) as res:
+        assert res.status_code == 200
+        text = b"".join(res.iter_bytes()).decode("utf-8", errors="replace")
+    assert "event: token" in text
+    assert "event: done" in text
+    assert store.find_entity_by_name("Python") is not None
 
 
 def test_import_rejects_oversized_payload(client):

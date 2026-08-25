@@ -67,6 +67,12 @@ def fake_ollama(monkeypatch):
             })
         return json.dumps({"entities": [], "relationships": [], "stops": []})
 
+    def fake_chat_stream(model, messages, temperature=0.0, timeout=None):
+        text = fake_chat(model, messages, temperature=temperature)
+        for i in range(0, len(text), 24):
+            yield text[i:i + 24]
+
     monkeypatch.setattr(ollama, "available", lambda: True)
     monkeypatch.setattr(ollama, "chat", fake_chat)
+    monkeypatch.setattr(ollama, "chat_stream", fake_chat_stream)
     return ollama

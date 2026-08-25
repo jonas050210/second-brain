@@ -27,6 +27,8 @@ message → command? → trivial filter → extract (Ollama or rules)
 - Default extraction model: `qwen3:0.6b` (small on purpose)
 - Default embeddings: `nomic-embed-text`
 - Both are configurable in Settings or `.env` — no code changes
+- LLM extraction is validated against the user's words, then merged with the
+  deterministic fallback. Unsupported personal facts are dropped.
 - Answers are **KNOWN / UNCERTAIN / UNKNOWN**
 - History is kept; superseded facts stay available but are not treated as current
 
@@ -171,7 +173,9 @@ silently delete history.
 ## Search / RAG
 
 Keyword + semantic + graph + recency + confidence + active/superseded + bounded
-multi-hop. If there is no evidence, the answer is UNKNOWN.
+multi-hop. Short names (`Go`, `C#`, `AI`) are searchable. Direct questions
+such as “Where do I live?” or “What technology does the game engine use?”
+read the graph first. If there is no evidence, the answer is UNKNOWN.
 
 ---
 
@@ -179,7 +183,9 @@ multi-hop. If there is no evidence, the answer is UNKNOWN.
 
 Cytoscape visualization of the real SQLite graph. Pan, zoom, search, type /
 relation / confidence / status / pinned / important filters, expand, focus,
-edit, delete, merge. No fabricated nodes.
+edit, delete, merge. Layouts: force, group-by-type, from-User. Relationship
+types can be edited on an entity. Isolated nodes can be hidden. No fabricated
+nodes.
 
 ---
 
@@ -189,6 +195,7 @@ edit, delete, merge. No fabricated nodes.
 - Merge import or replace import (replace requires `confirm=true`)
 - User relationships are remapped
 - Local backups under `data/backups/` (SQLite + JSON + MD)
+- Optional automatic local backups (default every 24 hours; never deletes)
 - Secrets are not exported
 - Reset requires confirmation
 - Restore a named local backup (creates a safety snapshot first)
@@ -228,7 +235,7 @@ second-brain/
 
 - Single-user, local only
 - Offline extractor is intentionally small; hard phrasing is better with Ollama
-- SSE chat emits a completed reply (extraction must finish first)
+- SSE chat extracts first, then streams the reply token-by-token when Ollama is up
 - Playwright browser tests skip if Chromium is not installed
 - Learning several things at once is allowed unless you stop or switch
 - `SecondBrain.exe` must be built on Windows (PyInstaller does not cross-compile a PE from Linux)

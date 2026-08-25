@@ -246,6 +246,17 @@ def multi_hop(seed_ids, max_depth=3, max_nodes=40, active_only=True):
     return facts
 
 
+def group_by_type(active_only=True):
+    """Group live entities by type for larger-graph navigation."""
+    ents = store.all_entities()
+    if active_only:
+        ents = [e for e in ents if e.get("status", "active") == "active"]
+    groups = defaultdict(list)
+    for e in ents:
+        groups[e["type"]].append({"id": e["id"], "name": e["name"], "type": e["type"]})
+    return {k: sorted(v, key=lambda x: x["name"].lower()) for k, v in groups.items()}
+
+
 def explainable_rank(query_text, max_depth=3):
     """Deterministic hybrid ranking with explainable reasons.
 

@@ -306,7 +306,12 @@ def forget_target(target):
     tl = target.lower()
 
     # "that I am learning Rust" -> supersede the learning relationship.
-    m = re.match(r"(?:that\s+)?(?:i\s+)?(?:am|was|is|were)?\s*(learning|using|working on|into|interested in|prefer|preferring)\s+(.+)$", tl)
+    m = re.match(
+        r"(?:that\s+)?(?:i\s+)?(?:am|was|is|were)?\s*"
+        r"(learning|using|working on|into|interested in|prefer|preferring|"
+        r"live in|living in|work at|working at)\s+(.+)$",
+        tl,
+    )
     if m:
         rel, name = m.group(1).strip(), m.group(2).strip()
         e = _find_entity(name)
@@ -315,7 +320,9 @@ def forget_target(target):
         # For learning/uses/prefers: supersede rather than delete (keep history).
         rel_map = {"learning": "learning", "using": "uses", "working on": "works_on",
                    "into": "interested_in", "interested in": "interested_in",
-                   "prefer": "prefers", "preferring": "prefers"}
+                   "prefer": "prefers", "preferring": "prefers",
+                   "live in": "lives_in", "living in": "lives_in",
+                   "work at": "works_at", "working at": "works_at"}
         rel = rel_map.get(rel, "learning")
         changed = store.supersede_relationship(store.ensure_user_entity(), e["id"], rel)
         if changed:

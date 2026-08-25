@@ -113,6 +113,14 @@ def test_multi_hop_respects_depth_limit():
     assert len(deep) >= len(shallow)
 
 
+def test_group_by_type():
+    _seed()
+    groups = graph.group_by_type(active_only=True)
+    assert "technology" in groups
+    names = {n["name"] for rows in groups.values() for n in rows}
+    assert "Rust" in names or "Bevy" in names
+
+
 def test_explainable_rank():
     _seed()
     ranked = graph.explainable_rank("Rust")

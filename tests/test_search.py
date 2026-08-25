@@ -124,6 +124,34 @@ def test_pinned_entity_gets_reason():
     assert "pinned" in hit["reasons"]
 
 
+def test_short_name_keyword_go():
+    extract.extract("I am learning Go")
+    hits = search.keyword_search("Go")
+    assert any(h[1]["name"] == "Go" for h in hits)
+
+
+def test_where_do_i_live_direct():
+    extract.extract("I live in Berlin")
+    a = search.answer("Where do I live?")
+    assert a["status"] == "known"
+    assert "Berlin" in a["text"]
+
+
+def test_what_does_project_use_direct():
+    extract.extract("My new project Game Engine uses Bevy")
+    a = search.answer("What technology does the game engine use?")
+    assert a["status"] == "known"
+    assert "Bevy" in a["text"]
+
+
+def test_ambiguous_unknown_stays_unknown():
+    extract.extract("I prefer Python")
+    a = search.answer("What is my favorite color?")
+    assert a["status"] in ("unknown", "uncertain")
+    if a["status"] == "unknown":
+        assert "don't have" in a["text"].lower() or "nothing" in a["text"].lower()
+
+
 def test_works_at_intent():
     extract.extract("I work at Acme")
     assert search.detect_intent("Where do I work at?") == "organization"

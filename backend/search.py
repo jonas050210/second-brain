@@ -54,6 +54,22 @@ def re_tokenize(s):
     return re.findall(r"[a-z0-9#+.\-']+", s.lower())
 
 
+_SHORT_TERMS = {
+    "go", "ai", "js", "ts", "ui", "ux", "ml", "c#", "c++", "r", "k8s",
+}
+
+
+def query_terms(query_text):
+    """Content tokens for ranking. Keeps short tech names (Go, AI, C#)."""
+    out = []
+    for t in re_tokenize(query_text):
+        if t in STOPWORDS:
+            continue
+        if len(t) > 2 or t in _SHORT_TERMS:
+            out.append(t)
+    return out
+
+
 def json_loads(s):
     try:
         return json.loads(s or "[]")
@@ -84,7 +100,7 @@ def vector_search(query_text, k=None):
 # --------------------------------------------------------------------------
 
 def keyword_search(query_text, limit=10):
-    terms = [t for t in re_tokenize(query_text) if len(t) > 2 and t not in STOPWORDS]
+    terms = query_terms(query_text)
     rows = db.query("SELECT * FROM entities")
     scored = []
     for r in rows:
@@ -229,6 +245,7 @@ def sources_for_facts(facts, limit=8):
                 "conversation_title": src["conversation_title"] if src else None,
                 "created_at": (src["created_at"] if src else None) or ent["created_at"],
                 "snippet": snippet,
+                "fact": f.get("text"),
             })
             if len(sources) >= limit:
                 return sources
@@ -316,15 +333,21 @@ def search(query_text, filters=None, multi_hop_depth=3):
             seen.add(f["text"])
             dedup.append(f)
 
-    q_terms = set(re_tokenize(query_text)) - STOPWORDS
-    if q_terms:
-        def _fact_score(f):
-            blob = (f.get("text") or "").lower()
-            return sum(1 for t in q_terms if t in blob)
-        dedup.sort(key=_fact_score, reverse=True)
+    dedup = _rank_facts(dedup, query_text)
 
     return {"intent": intent, "entities": entities, "facts": dedup,
             "sources": sources_for_facts(dedup)}
+
+
+def _rank_facts(facts, query_text):
+    q_terms = set(query_terms(query_text))
+    def _score(f):
+        blob = (f.get("text") or "").lower()
+        tok = sum(1 for t in q_terms if t in blob)
+        depth = f.get("depth") or 1
+        conf = f.get("confidence") or 0.5
+        return (tok * 3.0) + float(conf) - (max(int(depth), 1) - 1) * 0.45
+    return sorted(facts, key=_score, reverse=True)
 
 
 def _is_recent(row):
@@ -438,7 +461,7 @@ def _direct_fact_answer(query_text):
 
 
 _ABOUT = re.compile(
-    r"^(?:tell me about|what do (?:i|you) know about|who is)\s+(.+?)\??$",
+    r"^(?:tell me about|what do (?:i|you) know about|who is|what about)\s+(.+?)\??$",
     re.I,
 )
 _PATH_Q = re.compile(
@@ -447,10 +470,28 @@ _PATH_Q = re.compile(
     r"\??$",
     re.I,
 )
+_ARTICLES = re.compile(r"^(?:the|a|an|my|our|this|that)\s+", re.I)
+_USES_OF = re.compile(
+    r"^(?:what(?: technology| technologies| tools?)? does)\s+(.+?)\s+use\??$",
+    re.I,
+)
+_LIST_QUESTIONS = (
+    (re.compile(r"^(?:where do i live|where am i based|where do i live now)\??$", re.I),
+     "location", " lives_in "),
+    (re.compile(r"^(?:where do i work|who do i work for|where am i employed)\??$", re.I),
+     "organization", " works_at "),
+    (re.compile(r"^(?:who do i know|who have i met)\??$", re.I),
+     "person", " knows "),
+    (re.compile(r"^(?:what do i prefer|what(?:'s| is) my (?:preference|favorite|favourite)(?: language)?)\??$", re.I),
+     "interest", " prefers "),
+    (re.compile(r"^(?:what do i use|what(?: tools| tech| technologies) do i use)\??$", re.I),
+     "technology", " uses "),
+)
 
 
 def _resolve_named_entity(name):
     name = (name or "").strip().strip("?. ")
+    name = _ARTICLES.sub("", name).strip()
     if not name:
         return None
     hit = store.find_entity_by_name(name)
@@ -459,7 +500,16 @@ def _resolve_named_entity(name):
     hits = keyword_search(name, limit=3)
     if hits and hits[0][0] >= 5:
         return hits[0][1]
-    return None
+    tokens = [t for t in query_terms(name) if t not in STOPWORDS]
+    if not tokens:
+        return None
+    best = None
+    for row in db.query("SELECT * FROM entities"):
+        blob = (row["name"] or "").lower()
+        if all(t in blob for t in tokens):
+            if best is None or len(blob) < len(best["name"]):
+                best = row
+    return best
 
 
 def _about_answer(query_text):
@@ -543,33 +593,121 @@ def _path_answer(query_text):
     }
 
 
-def answer(query_text, model=None, context=None, filters=None):
-    model = model or config.DEFAULT_LLM_MODEL
+def _unknown(query_text):
+    return {
+        "text": (
+            f"I don't have a memory indicating that. Nothing in your brain "
+            f"matches “{query_text}” yet."
+        ),
+        "status": "unknown",
+        "sources": [],
+        "final": True,
+    }
+
+
+def _list_intent_answer(query_text):
+    """Direct answers for where I live / who I know / what I prefer."""
+    q = (query_text or "").strip()
+    for rx, intent, _needle in _LIST_QUESTIONS:
+        if not rx.match(q):
+            continue
+        facts = intent_facts(intent)
+        if not facts:
+            return _unknown(query_text)
+        return {
+            "text": "; ".join(f["text"] for f in facts[:8]) + ". (from stored memory)",
+            "status": "known",
+            "sources": sources_for_facts(facts),
+            "final": True,
+        }
+    return None
+
+
+def _uses_of_answer(query_text):
+    m = _USES_OF.match((query_text or "").strip())
+    if not m:
+        return None
+    ent = _resolve_named_entity(m.group(1))
+    if not ent:
+        return _unknown(query_text)
+    facts = [f for f in graph_facts_for_entity(ent["id"]) if " uses " in f["text"]]
+    if not facts:
+        return {
+            "text": f"I don't have a stored uses-relationship for {ent['name']}.",
+            "status": "unknown",
+            "sources": [],
+            "final": True,
+        }
+    return {
+        "text": "; ".join(f["text"] for f in facts[:8]) + ". (from stored memory)",
+        "status": "known",
+        "sources": sources_for_facts(facts),
+        "final": True,
+    }
+
+
+def retrieve_answer(query_text, filters=None):
+    """Deterministic retrieval. `final` answers skip the LLM composer."""
     direct = _direct_fact_answer(query_text)
     if direct is not None:
-        return direct
+        out = dict(direct)
+        out["final"] = True
+        return out
+    listed = _list_intent_answer(query_text)
+    if listed is not None:
+        return listed
+    uses = _uses_of_answer(query_text)
+    if uses is not None:
+        return uses
     about = _about_answer(query_text)
     if about is not None:
-        return about
+        out = dict(about)
+        out["final"] = True
+        return out
     path = _path_answer(query_text)
     if path is not None:
-        return path
-    res = search(query_text, filters=filters)
-    return compose_answer(query_text, res, model, context)
+        out = dict(path)
+        out["final"] = True
+        return out
+    return {"final": False, "retrieval": search(query_text, filters=filters)}
 
 
-def _status_of(res):
+def answer(query_text, model=None, context=None, filters=None):
+    model = model or config.DEFAULT_LLM_MODEL
+    retrieved = retrieve_answer(query_text, filters=filters)
+    if retrieved.get("final"):
+        return {k: retrieved[k] for k in ("text", "status", "sources") if k in retrieved}
+    return compose_answer(query_text, retrieved["retrieval"], model, context)
+
+
+def _intent_relevant_facts(facts, intent):
+    keys = {
+        "learning": (" learning ",),
+        "project": ("project ",),
+        "technology": (" uses ",),
+        "interest": (" prefers ", " interested_in ", " likes "),
+        "goal": (" wants ",),
+        "person": ("person ", " knows "),
+        "location": (" lives_in ",),
+        "organization": (" works_at ",),
+    }.get(intent)
+    if not keys:
+        return list(facts)
+    return [f for f in facts if any(k in f" {f.get('text', '')} " or k.strip() in (f.get("text") or "") for k in keys)]
+
+
+def _status_of(res, query_text=""):
     ents = res["entities"]
     facts = res["facts"]
     intent = res["intent"]
     if not ents and not facts:
         return "unknown"
     if intent and facts:
-        # Check if the top fact is actually intent-relevant and confident.
-        top_conf = facts[0]["confidence"] if facts else 0.0
-        if top_conf >= 0.6:
-            return "known"
-        return "uncertain"
+        relevant = _intent_relevant_facts(facts, intent)
+        if relevant:
+            top_conf = relevant[0].get("confidence") or 0.0
+            return "known" if top_conf >= 0.6 else "uncertain"
+        return "uncertain" if ents else "unknown"
     has_name = any((e.get("keyword") or 0) >= 1 for e in ents)
     if not has_name:
         return "unknown"
@@ -579,16 +717,9 @@ def _status_of(res):
     return "uncertain"
 
 
-def compose_answer(query_text, res, model, context=None):
+def _composer_messages(query_text, res, context=None):
     entities = res["entities"]
     facts = res["facts"]
-    sources = res.get("sources", [])
-    status = _status_of(res)
-
-    if status == "unknown":
-        return {"text": f"I don't have a memory indicating that. Nothing in your brain matches \u201c{query_text}\u201d yet.",
-                "status": "unknown", "sources": []}
-
     context_lines = []
     for e in entities[:8]:
         context_lines.append(
@@ -599,27 +730,62 @@ def compose_answer(query_text, res, model, context=None):
     if context:
         context_lines.append("- recent conversation:\n" + context)
     grounding = "\n".join(context_lines)
+    prompt = (
+        "You are the memory of a personal Second Brain. Answer the user's "
+        "question using ONLY the knowledge below. Be concise and factual. "
+        "If the knowledge does not contain the answer, say so explicitly — "
+        "never invent personal memories. Only mention entities that appear "
+        "in KNOWLEDGE. If the answer is based on low-confidence memories, "
+        "say 'I believe' or 'possibly'.\n\n"
+        f"KNOWLEDGE:\n{grounding}\n\nQUESTION: {query_text}\nANSWER:")
+    return [
+        {"role": "system",
+         "content": "You are a helpful personal knowledge assistant. Answer only from the provided knowledge."},
+        {"role": "user", "content": prompt},
+    ]
+
+
+def compose_answer(query_text, res, model, context=None):
+    sources = res.get("sources", [])
+    status = _status_of(res, query_text)
+
+    if status == "unknown":
+        return {"text": f"I don't have a memory indicating that. Nothing in your brain matches \u201c{query_text}\u201d yet.",
+                "status": "unknown", "sources": []}
 
     if ollama.available():
-        prompt = (
-            "You are the memory of a personal Second Brain. Answer the user's "
-            "question using ONLY the knowledge below. Be concise and factual. "
-            "If the knowledge does not contain the answer, say so explicitly — "
-            "never invent personal memories. If the answer is based on "
-            "low-confidence memories, say 'I believe' or 'possibly'.\n\n"
-            f"KNOWLEDGE:\n{grounding}\n\nQUESTION: {query_text}\nANSWER:")
         try:
-            text = ollama.chat(model, [
-                {"role": "system",
-                 "content": "You are a helpful personal knowledge assistant. Answer only from the provided knowledge."},
-                {"role": "user", "content": prompt},
-            ], temperature=0.2).strip()
-            return {"text": text, "status": status, "sources": sources}
+            text = ollama.chat(model, _composer_messages(query_text, res, context),
+                               temperature=0.2).strip()
+            if text:
+                return {"text": text, "status": status, "sources": sources}
         except Exception:
             pass
 
     text = _fallback_answer(query_text, res, status)
     return {"text": text, "status": status, "sources": sources}
+
+
+def compose_answer_stream(query_text, res, model, context=None):
+    """Yield reply chunks after retrieval. Falls back to one complete chunk."""
+    status = _status_of(res, query_text)
+    if status == "unknown":
+        yield f"I don't have a memory indicating that. Nothing in your brain matches \u201c{query_text}\u201d yet."
+        return
+    if ollama.available():
+        try:
+            acc = []
+            for piece in ollama.chat_stream(
+                model, _composer_messages(query_text, res, context), temperature=0.2,
+            ):
+                if piece:
+                    acc.append(piece)
+                    yield piece
+            if "".join(acc).strip():
+                return
+        except Exception:
+            pass
+    yield _fallback_answer(query_text, res, status)
 
 
 def _fallback_answer(query_text, res, status):

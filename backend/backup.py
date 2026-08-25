@@ -17,9 +17,12 @@ import os
 import re
 import shutil
 import sqlite3
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta
 
 from . import config, db, export
+
+_auto_lock = threading.Lock()
 
 _BACKUP_NAME = re.compile(r"^backup-\d{8}-\d{6}(?:-\d{1,6})?$")
 
@@ -144,6 +147,37 @@ def resolve_backup_dir(name):
     if not os.path.isdir(target):
         return None
     return target
+
+
+def auto_backup_hours():
+    return db.get_setting_float("auto_backup_hours", config.DEFAULT_AUTO_BACKUP_HOURS)
+
+
+def maybe_auto_backup():
+    """Create a local backup if the last one is older than the configured interval.
+
+    Never deletes backups. Skips empty brains and disabled (0 hour) settings.
+    """
+    hours = auto_backup_hours()
+    if hours is None or hours <= 0:
+        return {"ok": False, "skipped": True, "reason": "disabled"}
+    with _auto_lock:
+        from . import store
+        ents = store.all_entities()
+        mems = store.recent_memories(1)
+        if len(ents) <= 1 and not mems:
+            return {"ok": False, "skipped": True, "reason": "empty"}
+        last = db.get_setting("last_backup_at")
+        if last:
+            try:
+                then = datetime.fromisoformat(str(last))
+                if datetime.now() - then.replace(tzinfo=None) < timedelta(hours=float(hours)):
+                    return {"ok": False, "skipped": True, "reason": "fresh"}
+            except (TypeError, ValueError):
+                pass
+        result = create_backup()
+        result["automatic"] = True
+        return result
 
 
 def restore_backup(name, confirm=False):

@@ -26,12 +26,16 @@ The database is the source of truth.
 - Natural command detection (no hijacking of "remember when")
 - Tell-me-about / path questions with source snippets
 - Note paragraph import; graph path + add-relationship
+- Strict LLM extraction validation + merge with deterministic fallback
+- Token-level SSE streaming after extraction / retrieval
+- Scheduled local backups (opt-in interval, default 24h)
+- Graph layouts (force / by type / from User) and relationship-type editing
+- Direct NL answers for live / work / prefer / use-of questions
 
 ## Next (optional)
 
-- Scheduled backups
-- Token-level streaming after extraction completes
-- Explicit user-initiated file/note import
+- Explicit user-initiated binary file ingest
+- Tray icon / background service for the EXE
 
 ## Non-goals
 

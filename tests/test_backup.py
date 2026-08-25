@@ -62,6 +62,16 @@ def test_restore_roundtrip_preserves_memories():
     assert store.find_entity_by_name("Python") is not None
 
 
+def test_maybe_auto_backup_skips_empty_and_fresh():
+    r = backup.maybe_auto_backup()
+    assert r.get("skipped") is True
+    extract.extract("I am learning Python.")
+    first = backup.maybe_auto_backup()
+    assert first.get("ok") is True
+    again = backup.maybe_auto_backup()
+    assert again.get("skipped") is True
+
+
 def test_no_secrets_in_backup():
     backup.create_backup()
     status = backup.backup_status()

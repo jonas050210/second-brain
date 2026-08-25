@@ -218,3 +218,14 @@ def all_settings():
         except (ValueError, TypeError):
             out[r["key"]] = r["value"]
     return out
+
+
+def integrity_ok():
+    """True when SQLite reports a healthy file. Never deletes or rebuilds the DB."""
+    try:
+        row = query_one("PRAGMA integrity_check")
+        if not row:
+            return False
+        return str(next(iter(row.values()))).lower() == "ok"
+    except Exception:
+        return False

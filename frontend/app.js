@@ -306,7 +306,7 @@ async function sendChat() {
       const src = document.createElement("div");
       src.className = "remembered-box";
       src.innerHTML = `<div class="remembered-title">Sources</div>` +
-        sources.map((s) => `<span class="remembered-chip" data-id="${s.entity_id}">${esc(s.name)}</span>`).join("");
+        sources.map((s) => `<span class="remembered-chip" data-id="${s.entity_id}">${esc(s.name)}${s.fact ? ` · <span class="conf">${esc(s.fact)}</span>` : ""}${s.snippet ? ` · <span class="conf">${esc(s.snippet)}</span>` : ""}</span>`).join("");
       wrap.appendChild(src);
       src.querySelectorAll(".remembered-chip").forEach((chip) =>
         chip.addEventListener("click", () => openEntity(chip.dataset.id)));
@@ -599,13 +599,7 @@ function applyTypeFilter() {
     if (r.classList.contains("off")) hiddenTypes.add(r.dataset.type);
     else hiddenTypes.delete(r.dataset.type);
   });
-  cy.nodes().forEach((n) => {
-    n.style("display", hiddenTypes.has(n.data("type")) ? "none" : "element");
-  });
-  cy.edges().forEach((e) => {
-    const hidden = hiddenTypes.has(e.source().data("type")) || hiddenTypes.has(e.target().data("type"));
-    e.style("display", hidden ? "none" : "element");
-  });
+  applyConnectedFilter();
 }
 
 async function buildGraph() {
@@ -623,6 +617,7 @@ async function buildGraph() {
   applyTypeFilter();
   $("#graph-sub").textContent = `${g.nodes.length} entities · ${g.edges.length} relationships`;
   populateFilterDropdowns(g);
+  runGraphLayout();
 }
 
 function populateFilterDropdowns(g) {
@@ -681,13 +676,71 @@ async function applyGraphFilters() {
   cy.add(nodes.concat(edges));
   cy.nodes().forEach((n) => { if (n.data("status") === "superseded") n.addClass("superseded"); });
   cy.edges().forEach((e) => { if (e.data("status") === "superseded") e.addClass("superseded"); });
+  applyConnectedFilter();
   if (g.stats) {
     $("#graph-sub").textContent = `${g.stats.nodes} entities · ${g.stats.edges} relationships · avg degree ${g.stats.avg_degree}`;
   }
-  if (nodes.length) cy.fit(undefined, 40);
+  runGraphLayout();
+}
+
+const TYPE_RANK = {
+  person: 8, project: 7, organization: 6, technology: 5, skill: 4,
+  goal: 3, interest: 3, preference: 3, location: 2, topic: 2,
+  event: 2, task: 1, fact: 1, concept: 1,
+};
+
+function runGraphLayout() {
+  if (!cy) return;
+  const name = ($("#gf-layout") && $("#gf-layout").value) || "cose";
+  if (name === "concentric") {
+    cy.layout({
+      name: "concentric",
+      concentric: (n) => TYPE_RANK[n.data("type")] || 1,
+      levelWidth: () => 1,
+      animate: true,
+      animationDuration: 400,
+      padding: 40,
+    }).run();
+  } else if (name === "breadthfirst") {
+    const roots = cy.nodes().filter((n) => String(n.data("label") || "").toLowerCase() === "user");
+    cy.layout({
+      name: "breadthfirst",
+      roots: roots.length ? roots : undefined,
+      directed: false,
+      spacingFactor: 1.15,
+      animate: true,
+      animationDuration: 400,
+      padding: 40,
+    }).run();
+  } else {
+    cy.layout({
+      name: "cose",
+      animate: true,
+      animationDuration: 500,
+      nodeRepulsion: () => 9000,
+      idealEdgeLength: () => 90,
+      padding: 40,
+    }).run();
+  }
+}
+
+function applyConnectedFilter() {
+  if (!cy) return;
+  const only = $("#gf-connected") && $("#gf-connected").checked;
+  cy.nodes().forEach((n) => {
+    const hiddenType = hiddenTypes.has(n.data("type"));
+    const isolated = only && n.degree() === 0 && String(n.data("label") || "").toLowerCase() !== "user";
+    n.style("display", (hiddenType || isolated) ? "none" : "element");
+  });
+  cy.edges().forEach((e) => {
+    const hidden = e.source().style("display") === "none" || e.target().style("display") === "none";
+    e.style("display", hidden ? "none" : "element");
+  });
 }
 
 $("#graph-apply").addEventListener("click", applyGraphFilters);
+if ($("#gf-layout")) $("#gf-layout").addEventListener("change", runGraphLayout);
+if ($("#gf-connected")) $("#gf-connected").addEventListener("change", applyConnectedFilter);
 if ($("#gf-confidence")) {
   $("#gf-confidence").addEventListener("input", (e) => {
     const el = $("#gf-conf-val");
@@ -758,6 +811,8 @@ $("#graph-reset").addEventListener("click", async () => {
   // Reset filter controls and reload the full graph.
   $("#gf-type").value = ""; $("#gf-relation").value = "";
   $("#gf-superseded").checked = false; $("#gf-pinned").checked = false; $("#gf-important").checked = false;
+  if ($("#gf-connected")) $("#gf-connected").checked = false;
+  if ($("#gf-layout")) $("#gf-layout").value = "cose";
   $$(".legend-row").forEach((r) => r.classList.remove("off"));
   hiddenTypes.clear();
   await buildGraph();
@@ -786,7 +841,6 @@ async function loadMemory() {
     <div class="tl-day">
       <div class="tl-day-head">${esc(day)}</div>
       ${items.map((m) => {
-        const isSup = m.kind === "superseded";
         return `<div class="tl-item">
           <div class="tl-time">${fmtTime(m.created_at)}</div>
           <div class="tl-text">${esc(m.text)}<span class="tl-kind">${esc(m.kind)}</span>
@@ -913,6 +967,7 @@ async function loadEntity(id) {
   const d = await api("/entities/" + id);
   const e = d.entity;
 
+  const relTypes = ["learning","uses","knows","likes","created","interested_in","related_to","wants","works_on","prefers","works_at","lives_in","located_in","member_of"];
   const related = d.related.map((r) => `
     <div class="rel-item ${r.status === "superseded" ? "super" : ""}" data-id="${r.other_id}">
       <span style="color:${typeColors[r.other_type] || "#fff"}">●</span>
@@ -920,6 +975,7 @@ async function loadEntity(id) {
       ${badge(r.other_type)}
       <span class="rel-conf">${Math.round((r.confidence || 0.8) * 100)}%</span>
       <span class="ri-rel">${r.direction === "out" ? "→" : "←"} ${esc(r.relation)}</span>
+      ${r.rid ? `<select class="input rel-edit" data-rid="${r.rid}" title="Change relationship type">${relTypes.map((t) => `<option value="${t}" ${(r.canonical || r.relation) === t ? "selected" : ""}>${t}</option>`).join("")}</select>` : ""}
       ${r.rid ? `<button class="rel-del" data-rid="${r.rid}" title="Delete relationship">✕</button>` : ""}
     </div>`).join("");
 
@@ -1036,8 +1092,17 @@ async function loadEntity(id) {
   if (srcLink) srcLink.addEventListener("click", () => openSource(e.source));
   $$("#entity-inner .rel-item").forEach((el) =>
     el.addEventListener("click", (ev) => {
-      if (ev.target.closest(".rel-del")) return;
+      if (ev.target.closest(".rel-del") || ev.target.closest(".rel-edit")) return;
       openEntity(el.dataset.id);
+    }));
+  $$("#entity-inner .rel-edit").forEach((sel) =>
+    sel.addEventListener("change", async (ev) => {
+      ev.stopPropagation();
+      await api("/relationships/" + sel.dataset.rid, {
+        method: "PATCH", body: JSON.stringify({ relation: sel.value }),
+      });
+      toast("Relationship updated");
+      loadEntity(id); buildGraph();
     }));
   $$("#entity-inner .rel-del").forEach((btn) =>
     btn.addEventListener("click", async (ev) => {
@@ -1153,6 +1218,10 @@ async function loadSettings() {
   $("#set-merge").value = s.merge_similarity;
   $("#merge-val").textContent = s.merge_similarity;
   $("#set-auto-memory").checked = s.auto_memory;
+  if ($("#set-auto-backup")) {
+    const hours = (s.auto_backup_hours == null ? 24 : s.auto_backup_hours);
+    $("#set-auto-backup").value = String([0, 6, 12, 24, 48].includes(Number(hours)) ? hours : 24);
+  }
   if ($("#set-theme")) $("#set-theme").value = s.theme || "dark";
   $("#db-path").textContent = "Database: " + s.db_path;
   $("#ollama-info").innerHTML = s.ollama_available
@@ -1190,6 +1259,7 @@ $("#set-behavior-save").addEventListener("click", async () => {
     confidence_threshold: parseFloat($("#set-confidence").value),
     merge_similarity: parseFloat($("#set-merge").value),
     auto_memory: $("#set-auto-memory").checked,
+    auto_backup_hours: $("#set-auto-backup") ? parseFloat($("#set-auto-backup").value) : undefined,
     theme: $("#set-theme") ? $("#set-theme").value : undefined,
   })});
   if ($("#set-theme")) document.body.classList.toggle("theme-light", $("#set-theme").value === "light");

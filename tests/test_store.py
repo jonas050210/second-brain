@@ -158,6 +158,10 @@ def test_user_entity_protected():
     assert store.entity_row(uid)["norm_name"] == "user"
 
 
+def test_integrity_ok_on_healthy_db():
+    assert db.integrity_ok() is True
+
+
 def test_merge_preserves_description():
     a = store.create_entity("Nebula", "project", description="AI workspace")
     b = store.create_entity("Nebula2", "project", description="")

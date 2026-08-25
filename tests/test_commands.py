@@ -11,6 +11,9 @@ def test_remember_command_recognized():
     assert not commands.is_command("Delete this later")
     assert not commands.is_command("Change my mind about Rust")
     assert commands.is_command("Can you forget Rust")
+    assert not commands.is_command("I forgot my keys at the office")
+    assert not commands.is_command("Please remind me to learn Rust")
+    assert not commands.is_command("We should remember this for later")
 
 
 def test_forget_supersedes_learning():
@@ -127,6 +130,20 @@ def test_forget_prefer_supersedes_not_deletes():
     rels = db.query("SELECT * FROM relationships WHERE source_id=? AND target_id=? AND relation='prefers'",
                     (uid, dark))
     assert rels and rels[0]["status"] == "superseded"
+
+
+def test_forget_live_in_supersedes():
+    uid = store.ensure_user_entity()
+    berlin = store.create_entity("Berlin", "location")
+    store.add_relationship(uid, berlin, "lives_in")
+    r = commands.handle_command("Forget that I live in Berlin.")
+    assert r["ok"] is True
+    rels = db.query(
+        "SELECT * FROM relationships WHERE source_id=? AND target_id=? AND relation='lives_in'",
+        (uid, berlin),
+    )
+    assert rels and rels[0]["status"] == "superseded"
+    assert store.entity_row(berlin) is not None
 
 
 def test_stop_remembering_forgets_entity():

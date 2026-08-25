@@ -529,6 +529,12 @@ body.theme-light {
 }
 body.theme-light .sidebar { background: rgba(255,255,255,0.7); }
 
+.rel-edit {
+  font-size: 11px; padding: 2px 6px; max-width: 128px; margin-left: 6px;
+}
+.rel-item { flex-wrap: wrap; }
+.graph-zoom { flex-wrap: wrap; max-width: 52%; justify-content: flex-end; }
+
 .rel-del {
   margin-left: 8px; border: none; background: transparent; color: var(--text-dim);
   cursor: pointer; font-size: 13px;

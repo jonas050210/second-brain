@@ -34,7 +34,7 @@ SECURITY_HEADERS = {
 from . import backup, commands, config, db, export, extract, ollama, search, store, summarize
 from . import graph as graph_engine
 
-app = FastAPI(title="Second Brain", version="2.2.0")
+app = FastAPI(title="Second Brain", version="2.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
@@ -84,38 +84,68 @@ def smalltalk_reply(text):
     return SMALLTALK.get(text.strip().lower().strip(".,!? "))
 
 
-def natural_reply(text, remembered, used_fallback):
-    """A short, grounded acknowledgment (never chain-of-thought)."""
-    if ollama.available():
-        lines = []
-        for r in remembered:
-            if r["kind"] == "entity":
-                lines.append(f'- new {r["type"]}: {r["name"]}')
-            else:
-                lines.append(f'- {r["source"]} {r["relation"]} {r["target"]}')
-        summary = "\n".join(lines) if lines else "(nothing durable)"
-        prompt = (
-            "You are a friendly personal Second Brain. The user said: "
-            f"\"{text}\"\nYou extracted these memories:\n{summary}\n\n"
-            "Acknowledge naturally in one or two short sentences and confirm "
-            "what you will remember. Do NOT invent anything beyond the list. "
-            "Do NOT reveal internal reasoning or say 'chain of thought'."
-        )
-        try:
-            return ollama.chat(effective_llm_model(), [
-                {"role": "system", "content": "You are a concise, friendly personal knowledge assistant."},
-                {"role": "user", "content": prompt},
-            ], temperature=0.3).strip()
-        except Exception:
-            pass
+def _natural_reply_fallback(remembered, used_fallback):
     if not remembered:
         return ("I heard you, but I didn't find anything durable to save yet. "
                 "Try telling me about a project, a technology, or a goal.")
-    n = len(remembered)
-    head = "Got it — I've updated your brain." if n else "Understood."
+    head = "Got it — I've updated your brain."
     if used_fallback:
         head += " (offline mode)"
     return head
+
+
+def _natural_reply_messages(text, remembered):
+    lines = []
+    for r in remembered:
+        if r["kind"] == "entity":
+            lines.append(f'- new {r["type"]}: {r["name"]}')
+        else:
+            lines.append(f'- {r["source"]} {r["relation"]} {r["target"]}')
+    summary = "\n".join(lines) if lines else "(nothing durable)"
+    prompt = (
+        "You are a friendly personal Second Brain. The user said: "
+        f"\"{text}\"\nYou extracted these memories:\n{summary}\n\n"
+        "Acknowledge naturally in one or two short sentences and confirm "
+        "what you will remember. Do NOT invent anything beyond the list. "
+        "Do NOT reveal internal reasoning or say 'chain of thought'."
+    )
+    return [
+        {"role": "system", "content": "You are a concise, friendly personal knowledge assistant."},
+        {"role": "user", "content": prompt},
+    ]
+
+
+def natural_reply(text, remembered, used_fallback):
+    """A short, grounded acknowledgment (never chain-of-thought)."""
+    if ollama.available():
+        try:
+            text_out = ollama.chat(
+                effective_llm_model(), _natural_reply_messages(text, remembered),
+                temperature=0.3,
+            ).strip()
+            if text_out:
+                return text_out
+        except Exception:
+            pass
+    return _natural_reply_fallback(remembered, used_fallback)
+
+
+def natural_reply_stream(text, remembered, used_fallback):
+    if ollama.available():
+        try:
+            acc = []
+            for piece in ollama.chat_stream(
+                effective_llm_model(), _natural_reply_messages(text, remembered),
+                temperature=0.3,
+            ):
+                if piece:
+                    acc.append(piece)
+                    yield piece
+            if "".join(acc).strip():
+                return
+        except Exception:
+            pass
+    yield _natural_reply_fallback(remembered, used_fallback)
 
 
 def build_updates(result):
@@ -136,8 +166,17 @@ def health():
         "embedding_model": effective_embedding_model(),
         "db_path": config.DB_PATH,
         "models_installed": ollama.list_models(),
-        "version": "2.2.0",
+        "version": "2.3.0",
+        "db_ok": db.integrity_ok(),
+        "auto_backup": _safe_auto_backup(),
     }
+
+
+def _safe_auto_backup():
+    try:
+        return backup.maybe_auto_backup()
+    except Exception as exc:
+        return {"ok": False, "skipped": True, "reason": f"error: {exc}"}
 
 
 @app.get("/api/models")
@@ -160,96 +199,180 @@ class ChatIn(BaseModel):
 
 @app.post("/api/chat")
 def chat(body: ChatIn):
-    content = body.content.strip()
-    if not content:
-        return {"reply": "", "remembered": [], "trivial": True}
+    turn = prepare_turn(body.content, body.conversation_id)
+    reply = "".join(render_reply(turn))
+    return finalize_turn(turn, reply)
 
-    cid = body.conversation_id or store.current_conversation_id()
+
+def prepare_turn(content, conversation_id=None):
+    """Persist the user turn and run extraction / retrieval. No assistant text yet."""
+    content = (content or "").strip()
+    turn = {
+        "kind": "empty",
+        "cid": None,
+        "content": content,
+        "ready_reply": "",
+        "remembered": [],
+        "updates": [],
+        "superseded": [],
+        "used_fallback": False,
+        "trivial": False,
+        "is_command": False,
+        "is_answer": False,
+        "ok": True,
+        "status": "",
+        "sources": [],
+        "extract": None,
+        "retrieval": None,
+        "context": "",
+        "original": content,
+    }
+    if not content:
+        turn["trivial"] = True
+        return turn
+    if len(content) > config.MAX_CHAT_CHARS:
+        content = content[:config.MAX_CHAT_CHARS]
+        turn["content"] = content
+        turn["original"] = content
+
+    cid = conversation_id or store.current_conversation_id()
+    turn["cid"] = cid
     msg_id = store.add_message("user", content, conversation_id=cid,
                                embedding=store.embed_text(content))
-    base = {"conversation_id": cid}
+    turn["msg_id"] = msg_id
 
-    # Title the conversation with its first user message.
     conv = store.conversation_row(cid)
     if conv and not conv["title"]:
         store.touch_conversation(cid, title=content[:60])
 
-    # Build short-term conversation context (separate from long-term memory).
     context = [m for m in store.conversation_messages(cid, config.SHORT_TERM_CONTEXT_TURNS)]
 
-    # 1. Explicit memory-control commands.
     cmd = commands.handle_command(content) if commands.is_command(content) else None
     if cmd and "action" not in cmd:
-        reply = cmd.get("reply", "Done.")
-        store.add_message("assistant", reply, conversation_id=cid,
-                          meta={"kind": "command", "ok": cmd.get("ok", True)})
-        return {"reply": reply, "remembered": [], "updates": [],
-                "is_command": True, "ok": cmd.get("ok", True), "trivial": False, **base}
+        turn["kind"] = "command"
+        turn["ready_reply"] = cmd.get("reply", "Done.")
+        turn["is_command"] = True
+        turn["ok"] = cmd.get("ok", True)
+        return turn
 
-    # "remember that X" -> force extraction of the payload.
     if cmd and cmd.get("action") == "remember":
-        payload = cmd["payload"]
-        return _extract_and_reply(payload, cid, msg_id, force=True, original=content)
+        content = cmd["payload"]
+        turn["content"] = content
 
-    # 2. Questions -> grounded RAG over memory.
-    if search.is_question(content) and not smalltalk_reply(content):
-        # Recent conversation turns (short-term context) augment long-term memory.
+    if search.is_question(turn["original"]) and not smalltalk_reply(turn["original"]) \
+            and not (cmd and cmd.get("action") == "remember"):
         recent = [m["content"] for m in context if m["role"] == "user"][-4:]
-        res = search.answer(content, model=effective_llm_model(),
-                            context="\n".join(recent))
-        reply = res["text"]
-        status = _normalize_status(res["status"])
-        store.add_message("assistant", reply, conversation_id=cid,
-                          meta={"kind": "answer", "status": status,
-                                "sources": res.get("sources", [])})
-        return {"reply": reply, "remembered": [], "updates": [],
-                "is_answer": True, "status": status,
-                "sources": res.get("sources", []), "trivial": False, **base}
+        turn["kind"] = "question"
+        turn["is_answer"] = True
+        turn["context"] = "\n".join(recent)
+        retrieved = search.retrieve_answer(turn["original"])
+        if retrieved.get("final"):
+            turn["ready_reply"] = retrieved.get("text") or ""
+            turn["status"] = _normalize_status(retrieved.get("status"))
+            turn["sources"] = retrieved.get("sources") or []
+        else:
+            turn["retrieval"] = retrieved.get("retrieval") or {}
+            turn["status"] = _normalize_status(
+                search._status_of(turn["retrieval"], turn["original"])
+            )
+            turn["sources"] = turn["retrieval"].get("sources") or []
+        return turn
 
-    # 3. Small talk.
-    if smalltalk_reply(content):
-        reply = smalltalk_reply(content)
-        store.add_message("assistant", reply, conversation_id=cid,
-                          meta={"kind": "smalltalk"})
-        return {"reply": reply, "remembered": [], "updates": [], "trivial": True, **base}
+    if smalltalk_reply(turn["original"]):
+        turn["kind"] = "smalltalk"
+        turn["ready_reply"] = smalltalk_reply(turn["original"])
+        turn["trivial"] = True
+        return turn
 
-    # 4. Normal message: auto-memory (unless disabled).
     if not auto_memory_enabled():
-        reply = "Auto-memory is off, so I won't save this. (Turn it back on in Settings.)"
-        store.add_message("assistant", reply, conversation_id=cid, meta={"kind": "off"})
-        return {"reply": reply, "remembered": [], "updates": [], "trivial": True, **base}
+        turn["kind"] = "off"
+        turn["ready_reply"] = (
+            "Auto-memory is off, so I won't save this. (Turn it back on in Settings.)"
+        )
+        turn["trivial"] = True
+        return turn
 
-    return _extract_and_reply(content, cid, msg_id, force=False, original=content)
-
-
-def _extract_and_reply(content, cid, msg_id, force=False, original=None):
     result = extract.extract(content, model=effective_llm_model(),
                              source_message_id=msg_id)
     if result["trivial"]:
-        reply = "Noted. Tell me more about what you're building or learning."
-        store.add_message("assistant", reply, conversation_id=cid, meta={"kind": "smalltalk"})
-        return {"reply": reply, "remembered": [], "updates": [], "trivial": True,
-                "conversation_id": cid}
+        turn["kind"] = "smalltalk"
+        turn["ready_reply"] = "Noted. Tell me more about what you're building or learning."
+        turn["trivial"] = True
+        return turn
 
-    remembered = result["remembered"]
-    updates = build_updates(result)
-    reply = natural_reply(original or content, remembered, result["used_fallback"])
+    turn["kind"] = "extract"
+    turn["extract"] = result
+    turn["remembered"] = result.get("remembered") or []
+    turn["updates"] = build_updates(result)
+    turn["superseded"] = result.get("superseded") or []
+    turn["used_fallback"] = result.get("used_fallback", False)
+    return turn
 
-    store.add_message("assistant", reply, conversation_id=cid,
-                      extracted=1 if (remembered or updates) else 0,
-                      meta={"updates": updates, "used_fallback": result["used_fallback"],
-                            "remembered": remembered,
-                            "superseded": result.get("superseded", [])})
 
-    return {
-        "reply": reply,
-        "remembered": remembered,
-        "updates": updates,
-        "superseded": result.get("superseded", []),
-        "used_fallback": result["used_fallback"],
-        "trivial": False,
+def render_reply(turn):
+    """Yield reply text. Extraction / retrieval has already finished."""
+    if turn["kind"] == "empty":
+        return
+    if turn["kind"] == "question" and turn.get("retrieval") is not None:
+        yield from search.compose_answer_stream(
+            turn["original"], turn["retrieval"], effective_llm_model(),
+            context=turn.get("context") or "",
+        )
+        return
+    if turn["kind"] == "extract":
+        yield from natural_reply_stream(
+            turn.get("original") or turn["content"],
+            turn.get("remembered") or [],
+            turn.get("used_fallback"),
+        )
+        return
+    if turn.get("ready_reply"):
+        yield turn["ready_reply"]
+
+
+def finalize_turn(turn, reply):
+    cid = turn.get("cid")
+    if turn["kind"] == "empty":
+        return {"reply": "", "remembered": [], "trivial": True}
+
+    meta = {"kind": turn["kind"]}
+    extracted = 0
+    if turn["kind"] == "command":
+        meta = {"kind": "command", "ok": turn.get("ok", True)}
+    elif turn["kind"] == "question":
+        meta = {"kind": "answer", "status": turn.get("status") or "",
+                "sources": turn.get("sources") or []}
+    elif turn["kind"] == "extract":
+        extracted = 1 if (turn.get("remembered") or turn.get("updates")) else 0
+        meta = {"updates": turn.get("updates") or [],
+                "used_fallback": turn.get("used_fallback"),
+                "remembered": turn.get("remembered") or [],
+                "superseded": turn.get("superseded") or []}
+    elif turn["kind"] == "off":
+        meta = {"kind": "off"}
+    else:
+        meta = {"kind": "smalltalk"}
+
+    store.add_message("assistant", reply or "", conversation_id=cid,
+                      extracted=extracted, meta=meta)
+
+    out = {
+        "reply": reply or "",
+        "remembered": turn.get("remembered") or [],
+        "updates": turn.get("updates") or [],
+        "superseded": turn.get("superseded") or [],
+        "used_fallback": turn.get("used_fallback", False),
+        "trivial": turn.get("trivial", False),
         "conversation_id": cid,
     }
+    if turn.get("is_command"):
+        out["is_command"] = True
+        out["ok"] = turn.get("ok", True)
+    if turn.get("is_answer"):
+        out["is_answer"] = True
+        out["status"] = turn.get("status") or ""
+        out["sources"] = turn.get("sources") or []
+    return out
 
 
 def _normalize_status(status):
@@ -401,6 +524,11 @@ def graph_stats():
     return graph_engine.graph_stats()
 
 
+@app.get("/api/graph/groups")
+def graph_groups(active_only: bool = True):
+    return graph_engine.group_by_type(active_only=active_only)
+
+
 # --------------------------------------------------------------------------
 # API: entities
 # --------------------------------------------------------------------------
@@ -467,6 +595,7 @@ def entity_detail(eid: int):
         if r["sid"] == eid:
             related.append({"other_id": r["tid"], "other_name": r["tname"],
                             "other_type": r["ttype"], "relation": r["relation"],
+                            "canonical": r["relation"],
                             "direction": "out", "rid": r["rid"], "status": r["status"],
                             "confidence": r["confidence"],
                             "source": _source_for(r["source_message_id"])})
@@ -474,6 +603,7 @@ def entity_detail(eid: int):
             inv = {v: k for k, v in config.RELATION_INVERSE.items()}.get(r["relation"], r["relation"])
             related.append({"other_id": r["sid"], "other_name": r["sname"],
                             "other_type": r["stype"], "relation": inv,
+                            "canonical": r["relation"],
                             "direction": "in", "rid": r["rid"], "status": r["status"],
                             "confidence": r["confidence"],
                             "source": _source_for(r["source_message_id"])})
@@ -898,6 +1028,7 @@ def get_settings():
         "confidence_threshold": db.get_setting_float("confidence_threshold", config.DEFAULT_CONFIDENCE_THRESHOLD),
         "merge_similarity": db.get_setting_float("merge_similarity", config.DEFAULT_MERGE_SIMILARITY),
         "auto_memory": db.get_setting_bool("auto_memory", True),
+        "auto_backup_hours": db.get_setting_float("auto_backup_hours", config.DEFAULT_AUTO_BACKUP_HOURS),
         "theme": db.get_setting("theme", "dark"),
         "ollama_available": ollama.available(),
         "models_installed": ollama.list_models(),
@@ -920,6 +1051,7 @@ class SettingsIn(BaseModel):
     confidence_threshold: Optional[float] = None
     merge_similarity: Optional[float] = None
     auto_memory: Optional[bool] = None
+    auto_backup_hours: Optional[float] = None
     theme: Optional[str] = None
 
 
@@ -941,6 +1073,8 @@ def set_settings(body: SettingsIn):
         db.set_setting("merge_similarity", max(0.0, min(1.0, body.merge_similarity)))
     if body.auto_memory is not None:
         db.set_setting("auto_memory", bool(body.auto_memory))
+    if body.auto_backup_hours is not None:
+        db.set_setting("auto_backup_hours", max(0.0, min(168.0, float(body.auto_backup_hours))))
     if body.theme:
         db.set_setting("theme", body.theme)
     return get_settings()
@@ -1029,30 +1163,36 @@ def demo_clear():
 
 @app.post("/api/chat/stream")
 def chat_stream(body: ChatIn):
-    """SSE chat. Same pipeline as /api/chat; tokens are emitted as they are ready."""
-    content = (body.content or "").strip()
-
+    """SSE chat. Extraction/retrieval finish first; the reply then streams."""
     def generate():
-        if not content:
-            yield _sse("done", {"reply": "", "remembered": [], "trivial": True})
-            return
-        result = chat(ChatIn(content=content, conversation_id=body.conversation_id))
-        if result.get("conversation_id"):
-            yield _sse("meta", {"conversation_id": result["conversation_id"]})
-        if result.get("remembered") or result.get("updates") or result.get("superseded"):
+        turn = prepare_turn(body.content, body.conversation_id)
+        if turn.get("cid"):
+            yield _sse("meta", {"conversation_id": turn["cid"]})
+        if turn.get("remembered") or turn.get("updates") or turn.get("superseded"):
             yield _sse("memory", {
-                "remembered": result.get("remembered") or [],
-                "updates": result.get("updates") or [],
-                "superseded": result.get("superseded") or [],
-                "used_fallback": result.get("used_fallback"),
+                "remembered": turn.get("remembered") or [],
+                "updates": turn.get("updates") or [],
+                "superseded": turn.get("superseded") or [],
+                "used_fallback": turn.get("used_fallback"),
             })
-        if result.get("status"):
-            yield _sse("status", {"status": result["status"]})
-        if result.get("sources"):
-            yield _sse("sources", {"sources": result["sources"]})
-        reply = result.get("reply") or ""
-        if reply:
-            yield _sse("token", {"text": reply})
+        if turn.get("status"):
+            yield _sse("status", {"status": turn["status"]})
+        if turn.get("sources"):
+            yield _sse("sources", {"sources": turn["sources"]})
+        chunks = []
+        try:
+            for piece in render_reply(turn):
+                if piece:
+                    chunks.append(piece)
+                    yield _sse("token", {"text": piece})
+        except Exception:
+            fallback = turn.get("ready_reply") or _natural_reply_fallback(
+                turn.get("remembered") or [], turn.get("used_fallback"))
+            if fallback and not chunks:
+                chunks.append(fallback)
+                yield _sse("token", {"text": fallback})
+        reply = "".join(chunks)
+        result = finalize_turn(turn, reply)
         yield _sse("done", result)
 
     return StreamingResponse(generate(), media_type="text/event-stream",

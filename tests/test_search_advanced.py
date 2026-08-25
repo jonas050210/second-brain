@@ -77,6 +77,13 @@ def test_uncertain_wording():
         assert "confidence" in a["text"].lower() or "certain" in a["text"].lower() or "tentative" in a["text"].lower()
 
 
+def test_uses_of_named_project():
+    _seed()
+    a = search.answer("What technology does the game engine use?")
+    assert a["status"] == "known"
+    assert "Bevy" in a["text"]
+
+
 def test_recency_boost_present():
     _seed()
     ranked = search.search("Rust")
