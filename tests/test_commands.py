@@ -14,6 +14,11 @@ def test_remember_command_recognized():
     assert not commands.is_command("I forgot my keys at the office")
     assert not commands.is_command("Please remind me to learn Rust")
     assert not commands.is_command("We should remember this for later")
+    assert not commands.is_command("Important meeting tomorrow")
+    assert not commands.is_command("I remember living in Berlin")
+    assert not commands.is_command("This is important to me")
+    assert commands.is_command("Important Rust")
+    assert commands.is_command("Unimportant Rust")
 
 
 def test_forget_supersedes_learning():

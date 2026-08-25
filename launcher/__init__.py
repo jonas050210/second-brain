@@ -4,4 +4,4 @@ This package does not reimplement memory, search, or the API. It only
 checks the environment and starts ``backend.app``.
 """
 
-__version__ = "2.3.1"
+__version__ = "2.4.0"

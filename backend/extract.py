@@ -342,7 +342,7 @@ def extract(text, model=None, source_message_id=None, demo=False):
 
     store.ensure_user_entity()
     threshold = confidence_threshold()
-    exclusive_relations = {"prefers", "lives_in", "works_at"}
+    exclusive_relations = set(config.EXCLUSIVE_RELATIONS)
 
     # ---- Entities ------------------------------------------------------
     id_by_name = {}

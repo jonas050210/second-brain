@@ -64,6 +64,7 @@ def neighborhood(entity_id, depth=1, relation=None, active_only=True):
     edge_rows = [edges[rid] for rid in seen_edges if rid in edges]
     return {
         "nodes": [{"id": n["id"], "name": n["name"], "type": n["type"],
+                   "description": n.get("description") or "",
                    "status": n.get("status", "active"), "pinned": n.get("pinned", 0),
                    "important": n.get("important", 0), "confidence": n["confidence"]}
                   for n in nodes.values()],
@@ -71,6 +72,74 @@ def neighborhood(entity_id, depth=1, relation=None, active_only=True):
                    "relation": r["relation"], "confidence": r["confidence"],
                    "status": r["status"]} for r in edge_rows],
     }
+
+
+def _serialize_nodes(ents):
+    return [{"id": e["id"], "label": e["name"], "type": e["type"],
+             "description": e.get("description") or "", "confidence": e["confidence"],
+             "pinned": e.get("pinned", 0), "important": e.get("important", 0),
+             "status": e.get("status", "active")} for e in ents]
+
+
+def _serialize_edges(rels):
+    return [{"id": f"e{r['id']}", "source": r["source_id"], "target": r["target_id"],
+             "relation": r["relation"], "confidence": r["confidence"],
+             "status": r.get("status", "active")} for r in rels]
+
+
+def graph_view(focus="auto", depth=2, active_only=True):
+    """Full graph, or User + N hops when the brain is large enough to clutter.
+
+    ``focus=auto`` uses User+depth once there are more than
+    ``GRAPH_FOCUS_THRESHOLD`` entities. Isolated User (no edges) always
+    falls back to the full graph so a new brain is never blank.
+    """
+    ents = store.all_entities()
+    rels = store.all_relationships(active_only=active_only)
+    total_nodes = len(ents)
+    total_edges = len(rels)
+    requested = (focus or "auto").strip().lower()
+    if requested not in ("auto", "user", "all"):
+        requested = "auto"
+    use_focus = requested
+    if requested == "auto":
+        use_focus = "user" if total_nodes > config.GRAPH_FOCUS_THRESHOLD else "all"
+    try:
+        depth = min(max(int(depth or 2), 1), 6)
+    except (TypeError, ValueError):
+        depth = 2
+    meta = {
+        "type_colors": config.TYPE_COLORS,
+        "relation_types": config.RELATION_TYPES,
+        "entity_types": config.ENTITY_TYPES,
+        "depth": depth,
+        "total_nodes": total_nodes,
+        "total_edges": total_edges,
+        "focus": "all",
+        "truncated": False,
+    }
+    if use_focus == "user":
+        uid = store.ensure_user_entity()
+        hood = neighborhood(uid, depth=depth, active_only=active_only)
+        if hood["edges"]:
+            nodes = [{
+                "id": n["id"], "label": n["name"], "type": n["type"],
+                "description": n.get("description") or "",
+                "confidence": n.get("confidence", 0.8),
+                "pinned": n.get("pinned", 0), "important": n.get("important", 0),
+                "status": n.get("status", "active"),
+            } for n in hood["nodes"]]
+            edges = hood["edges"]
+            meta["focus"] = "user"
+            meta["truncated"] = len(nodes) < total_nodes
+            meta["shown_nodes"] = len(nodes)
+            meta["shown_edges"] = len(edges)
+            return {"nodes": nodes, "edges": edges, **meta}
+    nodes = _serialize_nodes(ents)
+    edges = _serialize_edges(rels)
+    meta["shown_nodes"] = len(nodes)
+    meta["shown_edges"] = len(edges)
+    return {"nodes": nodes, "edges": edges, **meta}
 
 
 # --------------------------------------------------------------------------

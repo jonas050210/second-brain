@@ -112,6 +112,7 @@
         <div class="chat-layout">
           <aside class="conv-rail">
             <div class="conv-rail-head">Conversations</div>
+            <input id="conv-search" class="input" type="search" placeholder="Search chats…" autocomplete="off" />
             <div id="conv-list" class="conv-list"></div>
           </aside>
         <div class="chat-wrap">
@@ -174,6 +175,10 @@
           <label class="toggle small">
             <input type="checkbox" id="gf-connected" />
             <span>Connected only</span>
+          </label>
+          <label class="toggle small">
+            <input type="checkbox" id="gf-around-me" />
+            <span>Around me</span>
           </label>
           <button class="btn-ghost" id="graph-apply">Apply filters</button>
         </div>

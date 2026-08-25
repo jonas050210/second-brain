@@ -133,3 +133,36 @@ def test_note_chunk_split_and_import():
     r = export.import_notes("I am learning Python.\n\nMy project Nebula uses Ollama.")
     assert r["ok"] is True
     assert store.find_entity_by_name("Python") is not None
+
+
+def test_import_merge_reports_exclusive_conflict_and_skips():
+    extract.extract("I live in Berlin")
+    uid = store.ensure_user_entity()
+    payload = {
+        "format": "second-brain", "version": 1,
+        "entities": [
+            {"id": uid, "name": "User", "type": "person", "confidence": 1.0},
+            {"id": 99, "name": "Paris", "type": "location", "confidence": 0.9},
+        ],
+        "relationships": [
+            {"source_id": uid, "target_id": 99, "relation": "lives_in", "confidence": 0.9},
+            {"source_id": 12345, "target_id": 99, "relation": "related_to", "confidence": 0.5},
+        ],
+    }
+    r = export.import_merge(payload)
+    assert r["ok"] is True
+    assert r["conflicts"]
+    assert any(c.get("superseded") == "Berlin" for c in r["conflicts"])
+    assert r["relationships_skipped"] >= 1
+    assert any(s.get("reason") == "missing_endpoint" for s in r["skipped"])
+    paris = store.find_entity_by_name("Paris")
+    berlin = store.find_entity_by_name("Berlin")
+    assert paris and berlin
+    rels = db.query(
+        "SELECT * FROM relationships WHERE source_id=? AND relation='lives_in'",
+        (uid,),
+    )
+    active = [x for x in rels if x["status"] == "active"]
+    assert len(active) == 1
+    assert active[0]["target_id"] == paris["id"]
+    assert r.get("report") and "conflicts" in r["report"]

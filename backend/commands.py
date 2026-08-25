@@ -31,7 +31,12 @@ def is_command(text):
         return True
     if re.match(r"^(?:pin|unpin)\s+\S", t):
         return True
-    if re.match(r"^(?:important|unimportant)(?:\s|$)", t):
+    if t in ("important", "unimportant"):
+        return True
+    if re.match(r"^(?:important|unimportant)(?:\s+|:\s*)\S", t):
+        # "Important meeting tomorrow" is a sentence, not a memory command.
+        if re.search(r"\b(that|this|it|to|for|because|meeting|tomorrow|today|later|now|is|are|was|will|about)\b", t):
+            return False
         return True
     if re.match(r"^(?:mark|unmark|make)\s+.+\s+(?:as\s+)?(?:un)?important", t):
         return True

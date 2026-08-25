@@ -431,6 +431,61 @@ def all_conversations():
     return db.query("SELECT * FROM conversations ORDER BY updated_at DESC, id DESC")
 
 
+def _like_pattern(query):
+    raw = (query or "").strip()
+    if not raw:
+        return None
+    escaped = raw.replace("#", "##").replace("%", "#%").replace("_", "#_")
+    return f"%{escaped}%"
+
+
+def conversation_summaries(query=None, limit=200):
+    """List conversations with counts/previews. Optional title+message search.
+
+    Does not load every message row. LIKE wildcards in ``query`` are escaped
+    so ``%`` cannot dump the whole rail.
+    """
+    try:
+        limit = max(1, min(int(limit or 200), 500))
+    except (TypeError, ValueError):
+        limit = 200
+    like = _like_pattern(query)
+    params = []
+    where = ""
+    if like:
+        where = (
+            "WHERE c.id IN ("
+            "  SELECT id FROM conversations WHERE title LIKE ? ESCAPE '#' "
+            "  UNION "
+            "  SELECT conversation_id FROM messages "
+            "  WHERE conversation_id IS NOT NULL AND content LIKE ? ESCAPE '#'"
+            ")"
+        )
+        params.extend([like, like])
+    sql = (
+        "SELECT c.id, c.title, c.created_at, c.updated_at, "
+        "  (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id) AS message_count, "
+        "  (SELECT m.content FROM messages m WHERE m.conversation_id=c.id AND m.role='user' "
+        "   ORDER BY m.id DESC LIMIT 1) AS preview "
+        "FROM conversations c "
+        f"{where} "
+        "ORDER BY c.updated_at DESC, c.id DESC LIMIT ?"
+    )
+    params.append(limit)
+    rows = db.query(sql, tuple(params))
+    out = []
+    for c in rows:
+        out.append({
+            "id": c["id"],
+            "title": c["title"] or "(untitled)",
+            "created_at": c["created_at"],
+            "updated_at": c["updated_at"],
+            "message_count": int(c.get("message_count") or 0),
+            "preview": (c.get("preview") or "")[:80],
+        })
+    return out
+
+
 def current_conversation_id():
     cid = db.get_setting("current_conversation_id")
     if cid is None:

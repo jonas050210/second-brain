@@ -170,23 +170,43 @@ def _apply_entity_flags(eid, e):
         db.execute("UPDATE entities SET embedding=? WHERE id=?", (payload, eid))
 
 
+REPORT_LIMIT = 40
+
+
+def _clip(items, limit=REPORT_LIMIT):
+    items = list(items)
+    return items[:limit], len(items)
+
+
+def _entity_name(eid):
+    row = store.entity_row(eid) if eid is not None else None
+    return row["name"] if row else f"#{eid}"
+
+
 def _import_entities(data):
     user_id = store.ensure_user_entity()
     id_map = {}
-    created, merged = 0, 0
+    created, merged, skipped = 0, 0, []
     for e in data["entities"]:
         name = (e.get("name") or "").strip()
         if not name:
+            skipped.append({"reason": "empty_name"})
             continue
         if store.normalize_name(name) in ("user", "i", "me"):
             if e.get("id") is not None:
                 id_map[e["id"]] = user_id
             continue
+        try:
+            conf = float(e.get("confidence", 0.8))
+        except (TypeError, ValueError):
+            skipped.append({"reason": "bad_confidence", "name": name})
+            continue
         eid, is_new = store.upsert_entity(
             name, e.get("type", "concept"), e.get("description", ""),
-            confidence=float(e.get("confidence", 0.8)),
+            confidence=conf,
         )
         if eid is None:
+            skipped.append({"reason": "rejected", "name": name})
             continue
         if is_new:
             created += 1
@@ -195,39 +215,81 @@ def _import_entities(data):
         if e.get("id") is not None:
             id_map[e["id"]] = eid
         _apply_entity_flags(eid, e)
-    return id_map, created, merged
+    return id_map, created, merged, skipped
 
 
-def _import_relationships(data, id_map):
+def _import_relationships(data, id_map, apply_exclusive=True):
     added = 0
+    duplicates = 0
+    skipped = []
+    conflicts = []
+    exclusive = set(config.EXCLUSIVE_RELATIONS)
     for r in data["relationships"]:
         sid = id_map.get(r["source_id"])
         tid = id_map.get(r["target_id"])
-        if sid is None or tid is None or sid == tid:
+        raw_rel = r.get("relation") or ""
+        if sid is None or tid is None:
+            skipped.append({
+                "reason": "missing_endpoint",
+                "relation": raw_rel,
+                "source_id": r.get("source_id"),
+                "target_id": r.get("target_id"),
+            })
             continue
-        rel, swap = store.normalize_relation(r["relation"])
+        if sid == tid:
+            skipped.append({
+                "reason": "self_loop",
+                "relation": raw_rel,
+                "name": _entity_name(sid),
+            })
+            continue
+        rel, swap = store.normalize_relation(raw_rel)
         if swap:
             sid, tid = tid, sid
+        if apply_exclusive and rel in exclusive:
+            old_ids = store.supersede_relations_of_type(sid, rel, except_target_id=tid)
+            for oid in old_ids:
+                old = store.entity_row(oid)
+                if old:
+                    conflicts.append({
+                        "kind": "exclusive",
+                        "relation": rel,
+                        "kept": _entity_name(tid),
+                        "superseded": old["name"],
+                    })
+                    store.add_memory(
+                        "conflict",
+                        f'{rel} changed on import: now {_entity_name(tid)} (was {old["name"]})',
+                        entity_ids=[tid, oid],
+                    )
         existed = store.relationship_exists(sid, tid, rel)
-        rid = store.add_relationship(sid, tid, rel,
-                                     confidence=float(r.get("confidence", 0.8)))
+        try:
+            conf = float(r.get("confidence", 0.8))
+        except (TypeError, ValueError):
+            conf = 0.8
+        rid = store.add_relationship(sid, tid, rel, confidence=conf)
         if r.get("status") and r["status"] != "active" and rid:
             store.update_relationship(rid, status=r["status"])
         if not existed:
             added += 1
-    return added
+        else:
+            duplicates += 1
+    return added, skipped, conflicts, duplicates
 
 
 def _import_memories(data, id_map, message_map=None, dedup=True):
     added = 0
+    skipped = 0
     existing = set()
     if dedup:
         existing = {(m["kind"], m["text"]) for m in db.query("SELECT kind, text FROM memories")}
     for m in data.get("memories") or []:
         if not isinstance(m, dict) or not m.get("text"):
+            skipped += 1
             continue
         key = (m.get("kind") or "entity", m["text"])
         if dedup and key in existing:
+            skipped += 1
             continue
         try:
             raw_ids = m.get("entity_ids") or []
@@ -245,27 +307,60 @@ def _import_memories(data, id_map, message_map=None, dedup=True):
                 meta = json.loads(meta)
             except ValueError:
                 meta = {}
+        try:
+            conf = float(m.get("confidence", 0.8))
+        except (TypeError, ValueError):
+            conf = 0.8
         store.add_memory(m.get("kind") or "entity", m["text"], entity_ids=eids,
-                         message_id=mid, confidence=float(m.get("confidence", 0.8)),
+                         message_id=mid, confidence=conf,
                          meta=meta)
         existing.add(key)
         added += 1
-    return added
+    return added, skipped
+
+
+def _import_summary(mode, created, merged, added_rels, added_mems,
+                    skipped_ents, skipped_rels, conflicts, duplicates, skipped_mems):
+    skipped_ents, n_ent = _clip(skipped_ents)
+    skipped_rels, n_rel = _clip(skipped_rels)
+    conflicts, n_conf = _clip(conflicts)
+    return {
+        "ok": True, "mode": mode,
+        "entities_created": created,
+        "entities_merged": merged,
+        "relationships_added": added_rels,
+        "memories_added": added_mems,
+        "entities_skipped": n_ent,
+        "relationships_skipped": n_rel,
+        "memories_skipped": skipped_mems,
+        "duplicates": duplicates,
+        "conflicts": conflicts,
+        "skipped": skipped_rels,
+        "report": {
+            "conflicts": conflicts,
+            "skipped_relationships": skipped_rels,
+            "skipped_entities": skipped_ents,
+            "conflict_count": n_conf,
+            "skipped_relationship_count": n_rel,
+            "skipped_entity_count": n_ent,
+            "duplicate_relationships": duplicates,
+            "memories_skipped": skipped_mems,
+        },
+    }
 
 
 def import_merge(data):
     """Merge-import: upsert entities (by name) and add relationships.
-    Preserves existing data. Returns a summary."""
+    Preserves existing data. Returns a summary with skip/conflict details."""
     ok, err = validate_payload(data)
     if not ok:
         return {"ok": False, "error": err}
 
-    id_map, created, merged = _import_entities(data)
-    added_rels = _import_relationships(data, id_map)
-    added_mems = _import_memories(data, id_map, dedup=True)
-    return {"ok": True, "mode": "merge", "entities_created": created,
-            "entities_merged": merged, "relationships_added": added_rels,
-            "memories_added": added_mems}
+    id_map, created, merged, skipped_ents = _import_entities(data)
+    added_rels, skipped_rels, conflicts, duplicates = _import_relationships(data, id_map)
+    added_mems, skipped_mems = _import_memories(data, id_map, dedup=True)
+    return _import_summary("merge", created, merged, added_rels, added_mems,
+                           skipped_ents, skipped_rels, conflicts, duplicates, skipped_mems)
 
 
 def import_replace(data):
@@ -304,12 +399,11 @@ def import_replace(data):
         if m.get("id") is not None:
             msg_map[m["id"]] = new_mid
 
-    id_map, created, merged = _import_entities(data)
-    added_rels = _import_relationships(data, id_map)
-    added_mems = _import_memories(data, id_map, message_map=msg_map, dedup=False)
-    return {"ok": True, "mode": "replace", "entities_created": created,
-            "entities_merged": merged, "relationships_added": added_rels,
-            "memories_added": added_mems}
+    id_map, created, merged, skipped_ents = _import_entities(data)
+    added_rels, skipped_rels, conflicts, duplicates = _import_relationships(data, id_map)
+    added_mems, skipped_mems = _import_memories(data, id_map, message_map=msg_map, dedup=False)
+    return _import_summary("replace", created, merged, added_rels, added_mems,
+                           skipped_ents, skipped_rels, conflicts, duplicates, skipped_mems)
 
 
 def import_from_json(text, mode="merge"):

@@ -200,7 +200,7 @@ def test_import_notes_extracts_paragraphs(client):
 
 def test_health_reports_version(client):
     h = client.get("/api/health").json()
-    assert h.get("version") == "2.3.1"
+    assert h.get("version") == "2.4.0"
     assert h.get("db_ok") is True
     assert "auto_backup" in h
 
@@ -235,3 +235,38 @@ def test_import_rejects_oversized_payload(client):
     huge = "x" * (8 * 1024 * 1024 + 50)
     r = client.post("/api/import", json={"data": huge, "mode": "merge"})
     assert r.status_code == 400
+
+
+def test_conversation_search_by_message_body(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    client.post("/api/conversations/new")
+    client.post("/api/chat", json={"content": "I live in Berlin"})
+    hits = client.get("/api/conversations", params={"q": "Berlin"}).json()
+    assert len(hits) >= 1
+    none = client.get("/api/conversations", params={"q": "zzzz-no-such-chat"}).json()
+    assert none == []
+    wild = client.get("/api/conversations", params={"q": "%"}).json()
+    assert wild == []
+
+
+def test_graph_focus_user_hides_islands(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    from backend import store
+    for i in range(45):
+        store.create_entity(f"Island {i}", "concept")
+    auto = client.get("/api/graph", params={"focus": "auto"}).json()
+    assert auto["focus"] == "user"
+    labels = {n["label"] for n in auto["nodes"]}
+    assert "Rust" in labels
+    assert "Island 0" not in labels
+    full = client.get("/api/graph", params={"focus": "all"}).json()
+    assert any(n["label"] == "Island 0" for n in full["nodes"])
+
+
+def test_chat_empty_and_huge_payload(client):
+    empty = client.post("/api/chat", json={"content": "   "})
+    assert empty.status_code == 200
+    assert empty.json()["trivial"] is True
+    huge = client.post("/api/chat", json={"content": "I am learning Python. " + ("x" * 20000)})
+    assert huge.status_code == 200
+    assert store.find_entity_by_name("Python") is not None

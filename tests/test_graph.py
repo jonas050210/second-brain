@@ -127,3 +127,21 @@ def test_explainable_rank():
     assert ranked, "should rank Rust first"
     top = ranked[0]
     assert "reasons" in top and isinstance(top["reasons"], list)
+
+
+def test_graph_auto_focus_user_neighborhood():
+    extract.extract("I am learning Rust")
+    for i in range(45):
+        store.create_entity(f"Island {i}", "concept")
+    g = graph.graph_view(focus="auto", depth=2)
+    assert g["focus"] == "user"
+    assert g["truncated"] is True
+    labels = {n["label"] for n in g["nodes"]}
+    assert "User" in labels and "Rust" in labels
+    assert "Island 0" not in labels
+    full = graph.graph_view(focus="all")
+    assert full["focus"] == "all"
+    assert any(n["label"] == "Island 0" for n in full["nodes"])
+    small = graph.graph_view(focus="auto")
+    # After creating islands, auto stays on user.
+    assert small["focus"] == "user"

@@ -406,10 +406,11 @@ $("#chat-new").addEventListener("click", async () => {
 async function loadConversations() {
   const list = $("#conv-list");
   if (!list) return;
+  const q = ($("#conv-search") && $("#conv-search").value.trim()) || "";
   try {
-    const convs = await api("/conversations");
+    const convs = await api("/conversations" + (q ? ("?q=" + encodeURIComponent(q)) : ""));
     if (!convs.length) {
-      list.innerHTML = `<p class="muted">No conversations yet.</p>`;
+      list.innerHTML = `<p class="muted">${q ? "No conversations match." : "No conversations yet."}</p>`;
       return;
     }
     list.innerHTML = convs.map((c) => `
@@ -441,13 +442,24 @@ async function loadConversations() {
         loadConversations();
       }));
     const src = $("#sf-source");
-    if (src) {
+    if (src && !q) {
       const cur = src.value;
       src.innerHTML = `<option value="">Any source</option>` +
         convs.map((c) => `<option value="${c.id}">${esc(c.title || "Conversation " + c.id)}</option>`).join("");
       src.value = cur;
     }
   } catch {}
+}
+
+if ($("#conv-search")) {
+  let convSearchTimer = null;
+  $("#conv-search").addEventListener("input", () => {
+    clearTimeout(convSearchTimer);
+    convSearchTimer = setTimeout(loadConversations, 180);
+  });
+  $("#conv-search").addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.target.value = ""; loadConversations(); }
+  });
 }
 
 async function renameConversation(id, el) {
@@ -605,10 +617,17 @@ function applyTypeFilter() {
   applyConnectedFilter();
 }
 
-async function buildGraph() {
-  const g = await api("/graph");
+async function buildGraph(opts = {}) {
+  const aroundEl = $("#gf-around-me");
+  let focus = opts.focus;
+  if (!focus) focus = (aroundEl && aroundEl.checked) ? "user" : "auto";
+  const g = await api("/graph?focus=" + encodeURIComponent(focus) + "&depth=2");
   graphNodes = g.nodes;
   typeColors = g.type_colors || TYPE_COLORS;
+  if (aroundEl && g.focus === "user") aroundEl.checked = true;
+  if (g.truncated && $("#gf-layout") && $("#gf-layout").value === "cose") {
+    $("#gf-layout").value = "breadthfirst";
+  }
   const nodes = g.nodes.map((n) => ({ data: { id: n.id, label: n.label, type: n.type, description: n.description, pinned: n.pinned, important: n.important, status: n.status } }));
   const edges = g.edges.map((e) => ({ data: { id: e.id, source: e.source, target: e.target, relation: e.relation, status: e.status } }));
   if (!cy) initGraph();
@@ -618,7 +637,11 @@ async function buildGraph() {
   cy.edges().forEach((e) => { if (e.data("status") === "superseded") e.addClass("superseded"); });
   buildLegend();
   applyTypeFilter();
-  $("#graph-sub").textContent = `${g.nodes.length} entities · ${g.edges.length} relationships`;
+  if (g.truncated) {
+    $("#graph-sub").textContent = `You + ${g.depth} hops · ${g.nodes.length} of ${g.total_nodes} entities · Reset view for the full graph`;
+  } else {
+    $("#graph-sub").textContent = `${g.nodes.length} entities · ${g.edges.length} relationships`;
+  }
   populateFilterDropdowns(g);
   runGraphLayout();
 }
@@ -744,6 +767,11 @@ function applyConnectedFilter() {
 $("#graph-apply").addEventListener("click", applyGraphFilters);
 if ($("#gf-layout")) $("#gf-layout").addEventListener("change", runGraphLayout);
 if ($("#gf-connected")) $("#gf-connected").addEventListener("change", applyConnectedFilter);
+if ($("#gf-around-me")) {
+  $("#gf-around-me").addEventListener("change", () => {
+    buildGraph({ focus: $("#gf-around-me").checked ? "user" : "all" });
+  });
+}
 if ($("#gf-confidence")) {
   $("#gf-confidence").addEventListener("input", (e) => {
     const el = $("#gf-conf-val");
@@ -815,10 +843,11 @@ $("#graph-reset").addEventListener("click", async () => {
   $("#gf-type").value = ""; $("#gf-relation").value = "";
   $("#gf-superseded").checked = false; $("#gf-pinned").checked = false; $("#gf-important").checked = false;
   if ($("#gf-connected")) $("#gf-connected").checked = false;
+  if ($("#gf-around-me")) $("#gf-around-me").checked = false;
   if ($("#gf-layout")) $("#gf-layout").value = "cose";
   $$(".legend-row").forEach((r) => r.classList.remove("off"));
   hiddenTypes.clear();
-  await buildGraph();
+  await buildGraph({ focus: "all" });
   cy.fit(undefined, 50);
   closeEntity();
 });
@@ -1314,14 +1343,29 @@ $("#export-md").addEventListener("click", async () => {
   toast("Markdown exported");
 });
 
+function formatImportReport(r) {
+  if (!r || !r.ok) return "Error: " + ((r && r.error) || "import failed");
+  let msg = r.mode === "replace"
+    ? `Replaced: ${r.entities_created} entities imported.`
+    : `Merged: ${r.entities_created} created, ${r.entities_merged} merged, ${r.relationships_added} relationships.`;
+  const conflicts = r.conflicts || (r.report && r.report.conflicts) || [];
+  if (conflicts.length) {
+    msg += " Conflicts: " + conflicts.slice(0, 8).map((c) =>
+      `${c.relation} now ${c.kept} (was ${c.superseded})`).join("; ") + ".";
+  }
+  const skippedRels = r.relationships_skipped || 0;
+  const skippedMems = r.memories_skipped || 0;
+  if (skippedRels) msg += ` Skipped ${skippedRels} relationship(s).`;
+  if (skippedMems) msg += ` ${skippedMems} duplicate memories ignored.`;
+  return msg;
+}
+
 $("#import-merge").addEventListener("click", async () => {
   const data = $("#import-data").value.trim();
   if (!data) return;
   try {
     const r = await api("/import", { method: "POST", body: JSON.stringify({ data, mode: "merge" }) });
-    $("#import-status").textContent = r.ok
-      ? `Merged: ${r.entities_created} created, ${r.entities_merged} merged, ${r.relationships_added} relationships.`
-      : "Error: " + r.error;
+    $("#import-status").textContent = formatImportReport(r);
     if (r.ok) { loadDashboard(); buildGraph(); }
   } catch (e) { $("#import-status").textContent = "Error: " + e.message; }
 });
@@ -1332,9 +1376,7 @@ $("#import-replace").addEventListener("click", async () => {
   if (!confirm("Replace the ENTIRE database with this import? This wipes all current data.")) return;
   try {
     const r = await api("/import", { method: "POST", body: JSON.stringify({ data, mode: "replace", confirm: true }) });
-    $("#import-status").textContent = r.ok
-      ? `Replaced: ${r.entities_created} entities imported.`
-      : "Error: " + r.error;
+    $("#import-status").textContent = formatImportReport(r);
     if (r.ok) { loadDashboard(); buildGraph(); loadMemory(); }
   } catch (e) { $("#import-status").textContent = "Error: " + e.message; }
 });

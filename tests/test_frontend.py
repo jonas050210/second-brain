@@ -121,7 +121,11 @@ def test_entity_browser_and_palette_markup():
     assert 'id="backup-list"' in html
     assert 'id="gf-layout"' in html
     assert 'id="set-auto-backup"' in html
+    assert 'id="conv-search"' in html
+    assert 'id="gf-around-me"' in html
     assert "function loadBrowse" in js
+    assert "function formatImportReport" in js
+    assert "/graph?focus=" in js
     assert "function openPalette" in js
     assert "function runGraphLayout" in js
     assert "sources: m.sources" in js

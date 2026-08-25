@@ -34,6 +34,10 @@ The database is the source of truth.
 - Full first-party source archive in projekt.md
 - Grounded Ollama answers (invented tech/entities dropped)
 - Auto-backup after memory writes, not on the health poll
+- Conversation search in the chat rail (title + message text)
+- Default graph view is User + 2 hops on large brains
+- Merge-import conflict / skip report
+- Tighter Important / Unimportant command detection
 
 ## Next (optional)
 

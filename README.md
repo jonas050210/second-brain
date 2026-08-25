@@ -165,6 +165,8 @@ Commands (deterministic, always hit SQLite):
 Remember · Forget · Remove · Pin · Unpin · Important · Unimportant · Merge ·
 Rename · Change · Set confidence · Stop remembering
 
+The chat rail can search conversation titles and message text.
+
 Forgetting a preference or a “learning X” fact **supersedes** it. It does not
 silently delete history.
 
@@ -185,7 +187,8 @@ Cytoscape visualization of the real SQLite graph. Pan, zoom, search, type /
 relation / confidence / status / pinned / important filters, expand, focus,
 edit, delete, merge. Layouts: force, group-by-type, from-User. Relationship
 types can be edited on an entity. Isolated nodes can be hidden. No fabricated
-nodes.
+nodes. Brains larger than 40 entities default to **Around me** (User + 2 hops);
+Reset view loads the full graph.
 
 ---
 
@@ -193,6 +196,7 @@ nodes.
 
 - JSON + Markdown export
 - Merge import or replace import (replace requires `confirm=true`)
+- Merge import reports exclusive-fact conflicts and skipped relationships
 - User relationships are remapped
 - Local backups under `data/backups/` (SQLite + JSON + MD)
 - Optional automatic local backups (default every 24 hours; never deletes)

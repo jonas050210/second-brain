@@ -4,9 +4,9 @@ Every first-party file is inlined below, including tests, launcher,
 and the vendor Cytoscape build. This is documentation, not a second app.
 Live source of truth remains the individual files.
 
-Generated: 2026-08-25 14:48 UTC
-Version: 2.3.1
-Files archived: 54
+Generated: 2026-08-25 15:03 UTC
+Version: 2.4.0
+Files archived: 55
 
 Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
 
@@ -14,10 +14,8 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
 
 - [`.env.example`](#envexample)
 - [`.gitignore`](#gitignore)
-- [`README.md`](#READMEmd)
-- [`ROADMAP`](#ROADMAP)
 - [`backend/.env.example`](#backendenvexample)
-- [`backend/__init__.py`](#backend__init__py)
+- [`backend/__init__.py`](#backendinitpy)
 - [`backend/app.py`](#backendapppy)
 - [`backend/backup.py`](#backendbackuppy)
 - [`backend/commands.py`](#backendcommandspy)
@@ -29,7 +27,7 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
 - [`backend/graph.py`](#backendgraphpy)
 - [`backend/ollama.py`](#backendollamapy)
 - [`backend/paths.py`](#backendpathspy)
-- [`backend/requirements-dev.txt`](#backendrequirements-devtxt)
+- [`backend/requirements-dev.txt`](#backendrequirementsdevtxt)
 - [`backend/requirements.txt`](#backendrequirementstxt)
 - [`backend/search.py`](#backendsearchpy)
 - [`backend/store.py`](#backendstorepy)
@@ -38,63 +36,64 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
 - [`frontend/index.html`](#frontendindexhtml)
 - [`frontend/style.css`](#frontendstylecss)
 - [`frontend/vendor/cytoscape.min.js`](#frontendvendorcytoscapeminjs)
-- [`launcher/__init__.py`](#launcher__init__py)
-- [`launcher/__main__.py`](#launcher__main__py)
+- [`launcher/__init__.py`](#launcherinitpy)
+- [`launcher/__main__.py`](#launchermainpy)
 - [`launcher/bootstrap.py`](#launcherbootstrappy)
-- [`launcher/build_exe.py`](#launcherbuild_exepy)
+- [`launcher/build_exe.py`](#launcherbuildexepy)
 - [`launcher/gui.py`](#launcherguipy)
 - [`main.py`](#mainpy)
 - [`pytest.ini`](#pytestini)
+- [`README.md`](#READMEmd)
 - [`requirements.txt`](#requirementstxt)
+- [`ROADMAP`](#ROADMAP)
 - [`run.py`](#runpy)
 - [`secondbrain.spec`](#secondbrainspec)
 - [`start.py`](#startpy)
-- [`test_overall.py`](#test_overallpy)
+- [`test_overall.py`](#testoverallpy)
 - [`tests/conftest.py`](#testsconftestpy)
-- [`tests/test_api.py`](#teststest_apipy)
-- [`tests/test_api_phase3.py`](#teststest_api_phase3py)
-- [`tests/test_backup.py`](#teststest_backuppy)
-- [`tests/test_commands.py`](#teststest_commandspy)
-- [`tests/test_export.py`](#teststest_exportpy)
-- [`tests/test_extraction.py`](#teststest_extractionpy)
-- [`tests/test_frontend.py`](#teststest_frontendpy)
-- [`tests/test_graph.py`](#teststest_graphpy)
-- [`tests/test_launcher.py`](#teststest_launcherpy)
-- [`tests/test_migration.py`](#teststest_migrationpy)
-- [`tests/test_ollama.py`](#teststest_ollamapy)
-- [`tests/test_search.py`](#teststest_searchpy)
-- [`tests/test_search_advanced.py`](#teststest_search_advancedpy)
-- [`tests/test_store.py`](#teststest_storepy)
-- [`tests/test_summarize.py`](#teststest_summarizepy)
+- [`tests/test_api.py`](#teststestapipy)
+- [`tests/test_api_phase3.py`](#teststestapiphase3py)
+- [`tests/test_backup.py`](#teststestbackuppy)
+- [`tests/test_commands.py`](#teststestcommandspy)
+- [`tests/test_export.py`](#teststestexportpy)
+- [`tests/test_extraction.py`](#teststestextractionpy)
+- [`tests/test_frontend.py`](#teststestfrontendpy)
+- [`tests/test_graph.py`](#teststestgraphpy)
+- [`tests/test_launcher.py`](#teststestlauncherpy)
+- [`tests/test_migration.py`](#teststestmigrationpy)
+- [`tests/test_ollama.py`](#teststestollamapy)
+- [`tests/test_reliability.py`](#teststestreliabilitypy)
+- [`tests/test_search.py`](#teststestsearchpy)
+- [`tests/test_search_advanced.py`](#teststestsearchadvancedpy)
+- [`tests/test_store.py`](#teststeststorepy)
+- [`tests/test_summarize.py`](#teststestsummarizepy)
 
 ## File tree
 
 ```
      634  .env.example
      285  .gitignore
-    7338  README.md
-    2106  ROADMAP
      459  backend/.env.example
        0  backend/__init__.py
-   45441  backend/app.py
+   44380  backend/app.py
     7455  backend/backup.py
-   15344  backend/commands.py
-    8310  backend/config.py
+   15631  backend/commands.py
+    8457  backend/config.py
     7595  backend/db.py
-   13534  backend/export.py
-   23023  backend/extract.py
+   16937  backend/export.py
+   23019  backend/extract.py
    22824  backend/fallback.py
-   12739  backend/graph.py
+   15570  backend/graph.py
     4385  backend/ollama.py
     4130  backend/paths.py
      242  backend/requirements-dev.txt
       66  backend/requirements.txt
    34314  backend/search.py
-   18480  backend/store.py
+   20323  backend/store.py
     5372  backend/summarize.py
-   65236  frontend/app.js
-   18495  frontend/index.html
-   28065  frontend/style.css
+   67164  frontend/app.js
+   18760  frontend/index.html
+   28208  frontend/style.css
   373304  frontend/vendor/cytoscape.min.js
      222  launcher/__init__.py
     3376  launcher/__main__.py
@@ -103,23 +102,26 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
    12035  launcher/gui.py
      728  main.py
       91  pytest.ini
+    7582  README.md
      165  requirements.txt
+    2312  ROADMAP
      223  run.py
     2575  secondbrain.spec
     9375  start.py
-   17435  test_overall.py
+   17512  test_overall.py
     2849  tests/conftest.py
-    8685  tests/test_api.py
+   10176  tests/test_api.py
     5976  tests/test_api_phase3.py
     3220  tests/test_backup.py
-    5709  tests/test_commands.py
-    4400  tests/test_export.py
+    6002  tests/test_commands.py
+    5750  tests/test_export.py
    10392  tests/test_extraction.py
-    5219  tests/test_frontend.py
-    4123  tests/test_graph.py
+    5376  tests/test_frontend.py
+    4805  tests/test_graph.py
     8594  tests/test_launcher.py
     3365  tests/test_migration.py
     2945  tests/test_ollama.py
+    1468  tests/test_reliability.py
     5454  tests/test_search.py
     3065  tests/test_search_advanced.py
     6284  tests/test_store.py
@@ -192,317 +194,6 @@ Thumbs.db
 .vscode/
 ````
 
-## `README.md`
-
-<a id="READMEmd"></a>
-
-- size: 7338 bytes
-- sha256: `822627a54e7a17429668b1b9d24f879606eba80b20ef03d829e4924a8269846a`
-
-````markdown
-# Second Brain — Local AI Knowledge Graph
-
-A **local, private Second Brain**. You talk to it. It extracts durable facts
-into a SQLite knowledge graph, then answers later questions from that memory.
-
-Nothing leaves the machine unless you export it. Ollama is optional.
-
-```
-Browser  →  FastAPI  →  SQLite
-                    ↘  Ollama (optional)
-                    ↘  deterministic fallback if Ollama is down
-```
-
-Reliability over cleverness. The database is the source of truth. The graph
-visualizes the database. RAG never invents personal facts.
-
----
-
-## How it works
-
-```
-message → command? → trivial filter → extract (Ollama or rules)
-       → validate → normalize → duplicate merge → conflict/supersede
-       → confidence → SQLite → graph + timeline → search/RAG
-```
-
-- Default extraction model: `qwen3:0.6b` (small on purpose)
-- Default embeddings: `nomic-embed-text`
-- Both are configurable in Settings or `.env` — no code changes
-- LLM extraction is validated against the user's words, then merged with the
-  deterministic fallback. Unsupported personal facts are dropped.
-- Answers are **KNOWN / UNCERTAIN / UNKNOWN**
-- History is kept; superseded facts stay available but are not treated as current
-
----
-
-## Requirements
-
-| Tool | Version |
-|------|---------|
-| Python | 3.11+ (3.11.9 recommended) |
-| Ollama | optional |
-| Node.js | not required to run |
-
-Target hardware: Windows 11, i7-12700F, RTX 4060 Ti 8GB, 32GB RAM.
-
----
-
-## Windows 11 setup
-
-### Option A — double-click `SecondBrain.exe`
-
-Build on **Windows 11** from a Python 3.11 environment (PyInstaller cannot cross-compile a PE from Linux):
-
-```powershell
-python -m pip install -r requirements.txt
-python -m pip install pyinstaller
-python -m launcher.build_exe
-```
-
-That produces **`dist/SecondBrain.exe`**. Double-click it.
-
-First launch shows a dark setup window (version, current step, progress, log, Ollama status). It:
-
-- checks the packaged runtime
-- finds an existing `brain.db` next to the EXE (`dist\data\brain.db`) or under `%LOCALAPPDATA%\SecondBrain\data\brain.db`
-- creates that file only if none exists — it never deletes, resets, or replaces a brain
-- probes Ollama over HTTP (`qwen3:0.6b`, `nomic-embed-text`)
-- does **not** download models unless you set `SECOND_BRAIN_PULL_MODELS=1`
-- starts the **existing** FastAPI app and opens the browser
-
-If Ollama is down, the window says offline and the app uses the rule-based fallback. It does not crash.
-
-Later launches skip installs, skip model downloads, and reopen the same database. The setup window stays open with **Open browser** / **Quit** so the server is not killed when the first-run checks finish.
-
-`start.py` remains the normal Python launcher. The EXE is an additional bootstrapper, not a second application.
-
-### Option B — Python launcher
-
-### 1. Optional: Ollama
-
-Install from https://ollama.com then:
-
-```powershell
-ollama pull qwen3:0.6b
-ollama pull nomic-embed-text
-```
-
-The app starts and works without this. Offline mode uses the rule-based extractor.
-
-### 2. First startup
-
-```powershell
-cd second-brain
-python start.py
-```
-
-`start.py` is the only primary launcher. It:
-
-- requires Python 3.11+
-- creates `.venv` only if runtime imports are missing
-- installs **only** missing packages
-- never reinstalls on later runs
-- probes Ollama over HTTP (offline is valid)
-- binds `0.0.0.0:8000`
-
-Open **http://localhost:8000**.
-
-### 3. Subsequent startup
-
-```powershell
-python start.py
-```
-
-No downloads. No reinstall.
-
-### 4. Useful flags
-
-```powershell
-python start.py --check          # diagnose, do not start
-python start.py --check-only     # same
-python start.py --no-install     # fail if deps are missing
-python start.py --dev            # auto-reload
-python start.py --open           # open the local URL
-python start.py --host 0.0.0.0 --port 8000
-```
-
-Works from any working directory; paths are resolved from `start.py`.
-
-### 5. Tests
-
-```powershell
-python -m pip install pytest httpx
-python test_overall.py
-```
-
----
-
-## Configuration
-
-Copy `.env.example` to `.env`, or use Settings:
-
-```
-OLLAMA_MODEL=qwen3:0.6b
-EMBEDDING_MODEL=nomic-embed-text
-OLLAMA_BASE_URL=http://localhost:11434
-```
-
-Runtime Settings: models, Ollama URL (http/https only), confidence threshold,
-duplicate-merge threshold, auto-memory, automatic local backup interval, theme.
-
----
-
-## Memory system
-
-Greetings, thanks, and jokes are not stored.
-
-Durable statements become entities and relationships with confidence, source
-message, and timestamps. Duplicates merge. Exclusive facts (`prefers`,
-`lives_in`, `works_at`) supersede the previous active one. “I stopped …” and
-“I switched from X to Y” supersede the old fact. History remains.
-
-Commands (deterministic, always hit SQLite):
-
-Remember · Forget · Remove · Pin · Unpin · Important · Unimportant · Merge ·
-Rename · Change · Set confidence · Stop remembering
-
-Forgetting a preference or a “learning X” fact **supersedes** it. It does not
-silently delete history.
-
----
-
-## Search / RAG
-
-Keyword + semantic + graph + recency + confidence + active/superseded + bounded
-multi-hop. Short names (`Go`, `C#`, `AI`) are searchable. Direct questions
-such as “Where do I live?” or “What technology does the game engine use?”
-read the graph first. If there is no evidence, the answer is UNKNOWN.
-
----
-
-## Graph
-
-Cytoscape visualization of the real SQLite graph. Pan, zoom, search, type /
-relation / confidence / status / pinned / important filters, expand, focus,
-edit, delete, merge. Layouts: force, group-by-type, from-User. Relationship
-types can be edited on an entity. Isolated nodes can be hidden. No fabricated
-nodes.
-
----
-
-## Backup / export / import
-
-- JSON + Markdown export
-- Merge import or replace import (replace requires `confirm=true`)
-- User relationships are remapped
-- Local backups under `data/backups/` (SQLite + JSON + MD)
-- Optional automatic local backups (default every 24 hours; never deletes)
-- Secrets are not exported
-- Reset requires confirmation
-- Restore a named local backup (creates a safety snapshot first)
-- Paste notes (plain text / markdown paragraphs) to extract memories
-
----
-
-## Privacy
-
-Local-first. No telemetry. No cloud accounts. The only optional network call is
-the Ollama URL you configure.
-
----
-
-## Project layout
-
-```
-second-brain/
-├── start.py               # primary Python launcher
-├── launcher/              # EXE bootstrapper + setup GUI (not a second app)
-├── secondbrain.spec       # PyInstaller spec → dist/SecondBrain.exe
-├── test_overall.py
-├── requirements.txt
-├── README.md
-├── ROADMAP
-├── projekt.md             # full first-party source archive
-├── .env.example
-├── .gitignore
-├── backend/
-├── frontend/
-├── tests/
-└── data/brain.db          # created on first run; never deleted by the EXE
-```
-
----
-
-## Limitations
-
-- Single-user, local only
-- Offline extractor is intentionally small; hard phrasing is better with Ollama
-- SSE chat extracts first, then streams the reply token-by-token when Ollama is up
-- Playwright browser tests skip if Chromium is not installed
-- Learning several things at once is allowed unless you stop or switch
-- `SecondBrain.exe` must be built on Windows (PyInstaller does not cross-compile a PE from Linux)
-````
-
-## `ROADMAP`
-
-<a id="ROADMAP"></a>
-
-- size: 2106 bytes
-- sha256: `2fc3be90f6166e0aa391eb6011077d433833ba188e2397e61076ca8d6a4d1a7d`
-
-````
-# Second Brain — Roadmap
-
-Local-first personal AI memory. Reliability over cleverness.
-The database is the source of truth.
-
-## Done
-
-- Chat, conversations, last-N context, persisted assistant replies
-- Automatic extraction (Ollama + honest offline fallback)
-- Deterministic memory commands including Important / Unimportant
-- Entities, relationships, facts, aliases, confidence, sources, timestamps
-- Active / superseded / pinned / important
-- Duplicate merge and exclusive-fact supersession
-- Knowledge graph as a visualization of SQLite
-- Hybrid search + multi-hop RAG with KNOWN / UNCERTAIN / UNKNOWN
-- Memory consolidation (originals kept)
-- JSON / Markdown export; validated merge / replace import
-- Local backups (SQLite + JSON + MD)
-- Dashboard from live data; labelled demo data
-- Settings, privacy panel, confirmed reset/replace
-- start.py as the only primary Python launcher (no setup.py, no start.bat)
-- SecondBrain.exe bootstrapper (PyInstaller) with a setup GUI; same FastAPI app
-- Backup restore with safety snapshot; unique backup folders
-- Entity browser, command palette, hash routing, conversation rename
-- Yes/no fact questions and list extraction (Python, Rust, and Go)
-- Natural command detection (no hijacking of "remember when")
-- Tell-me-about / path questions with source snippets
-- Note paragraph import; graph path + add-relationship
-- Strict LLM extraction validation + merge with deterministic fallback
-- Token-level SSE streaming after extraction / retrieval
-- Scheduled local backups (opt-in interval, default 24h)
-- Graph layouts (force / by type / from User) and relationship-type editing
-- Direct NL answers for live / work / prefer / use-of questions
-- Full first-party source archive in projekt.md
-- Grounded Ollama answers (invented tech/entities dropped)
-- Auto-backup after memory writes, not on the health poll
-
-## Next (optional)
-
-- Explicit user-initiated binary file ingest
-- Tray icon / background service for the EXE
-
-## Non-goals
-
-- Cloud sync by default
-- Telemetry
-- Inventing personal memories
-- A second graph store
-- A second extraction implementation
-````
-
 ## `backend/.env.example`
 
 <a id="backendenvexample"></a>
@@ -527,7 +218,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 
 ## `backend/__init__.py`
 
-<a id="backend__init__py"></a>
+<a id="backendinitpy"></a>
 
 - size: 0 bytes
 - sha256: `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
@@ -540,8 +231,8 @@ OLLAMA_BASE_URL=http://localhost:11434
 
 <a id="backendapppy"></a>
 
-- size: 45441 bytes
-- sha256: `987ef018ae00a87c1cd8117397cd3550362788b56f0b85f351146ff203013b6c`
+- size: 44380 bytes
+- sha256: `66547b4a0d52238773c57f583112cdd063bb73b3c33083f5c65a47361e344262`
 
 ````python
 """Second Brain — local AI knowledge graph.
@@ -579,8 +270,9 @@ SECURITY_HEADERS = {
 
 from . import backup, commands, config, db, export, extract, ollama, search, store, summarize
 from . import graph as graph_engine
+from .paths import APP_VERSION
 
-app = FastAPI(title="Second Brain", version="2.3.1")
+app = FastAPI(title="Second Brain", version=APP_VERSION)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
@@ -712,7 +404,7 @@ def health():
         "embedding_model": effective_embedding_model(),
         "db_path": config.DB_PATH,
         "models_installed": ollama.list_models(),
-        "version": "2.3.1",
+        "version": APP_VERSION,
         "db_ok": db.integrity_ok(),
         "auto_backup": backup.auto_backup_status(),
     }
@@ -968,17 +660,8 @@ def get_message(mid: int):
 
 
 @app.get("/api/conversations")
-def conversations():
-    rows = store.all_conversations()
-    out = []
-    for c in rows:
-        msgs = store.conversation_messages(c["id"])
-        user_msgs = [m for m in msgs if m["role"] == "user"]
-        out.append({"id": c["id"], "title": c["title"] or "(untitled)",
-                    "created_at": c["created_at"], "updated_at": c["updated_at"],
-                    "message_count": len(msgs),
-                    "preview": user_msgs[-1]["content"][:80] if user_msgs else ""})
-    return out
+def conversations(q: str = None):
+    return store.conversation_summaries(query=q)
 
 
 @app.post("/api/conversations/new")
@@ -1029,20 +712,8 @@ def conversation_messages(cid: int):
 # --------------------------------------------------------------------------
 
 @app.get("/api/graph")
-def graph(active_only: bool = True):
-    ents = store.all_entities()
-    rels = store.all_relationships(active_only=active_only)
-    nodes = [{"id": e["id"], "label": e["name"], "type": e["type"],
-              "description": e["description"], "confidence": e["confidence"],
-              "pinned": e.get("pinned", 0), "important": e.get("important", 0),
-              "status": e.get("status", "active")} for e in ents]
-    edges = [{"id": f"e{r['id']}", "source": r["source_id"], "target": r["target_id"],
-              "relation": r["relation"], "confidence": r["confidence"],
-              "status": r.get("status", "active")} for r in rels]
-    return {"nodes": nodes, "edges": edges,
-            "type_colors": config.TYPE_COLORS,
-            "relation_types": config.RELATION_TYPES,
-            "entity_types": config.ENTITY_TYPES}
+def graph(active_only: bool = True, focus: str = "auto", depth: int = 2):
+    return graph_engine.graph_view(focus=focus, depth=depth, active_only=active_only)
 
 
 @app.get("/api/graph/filter")
@@ -2013,8 +1684,8 @@ def restore_backup(name, confirm=False):
 
 <a id="backendcommandspy"></a>
 
-- size: 15344 bytes
-- sha256: `5f4186f9fcc542205f61926ff2117ac25d545fc9279479b7328154b2e0a4df77`
+- size: 15631 bytes
+- sha256: `4feb1ce2a837522bf67f5f01e200c94aac1052ee3467314e09cf03dd2f96e28e`
 
 ````python
 """Natural-language memory control.
@@ -2050,7 +1721,12 @@ def is_command(text):
         return True
     if re.match(r"^(?:pin|unpin)\s+\S", t):
         return True
-    if re.match(r"^(?:important|unimportant)(?:\s|$)", t):
+    if t in ("important", "unimportant"):
+        return True
+    if re.match(r"^(?:important|unimportant)(?:\s+|:\s*)\S", t):
+        # "Important meeting tomorrow" is a sentence, not a memory command.
+        if re.search(r"\b(that|this|it|to|for|because|meeting|tomorrow|today|later|now|is|are|was|will|about)\b", t):
+            return False
         return True
     if re.match(r"^(?:mark|unmark|make)\s+.+\s+(?:as\s+)?(?:un)?important", t):
         return True
@@ -2367,8 +2043,8 @@ def forget_target(target):
 
 <a id="backendconfigpy"></a>
 
-- size: 8310 bytes
-- sha256: `c52b578e774c0ffa82948bf507a627082b5dcb39c6e66396e90c39c9031121c5`
+- size: 8457 bytes
+- sha256: `a5e3121cc6389558e988817d736e819a243f607b48db9d95dc91fc9816316e20`
 
 ````python
 """Configuration for Second Brain.
@@ -2435,6 +2111,8 @@ SHORT_TERM_CONTEXT_TURNS = 10        # recent messages fed as conversation conte
 MAX_CHAT_CHARS = 16000               # hard cap on a single chat / extract payload
 MAX_EXTRACT_CHARS = 8000             # extractor window (head of the message)
 DEFAULT_AUTO_BACKUP_HOURS = 24.0     # 0 disables scheduled local backups
+GRAPH_FOCUS_THRESHOLD = 40           # auto-switch the graph to User + 2 hops above this
+EXCLUSIVE_RELATIONS = ("prefers", "lives_in", "works_at")
 
 # --------------------------------------------------------------------------
 # Memory types (categories). Kept rich but non-forcing: the extractor only
@@ -2784,8 +2462,8 @@ def integrity_ok():
 
 <a id="backendexportpy"></a>
 
-- size: 13534 bytes
-- sha256: `7eb85c90d1e7cd55bb0db094042f774bf17f9b340324230c02c50a7a35a32548`
+- size: 16937 bytes
+- sha256: `eb158f41ae2f848d7fe2560dd4969ae58788877e122bca0c710f2ec5da168b4d`
 
 ````python
 """Graph export / import (JSON + Markdown).
@@ -2960,23 +2638,43 @@ def _apply_entity_flags(eid, e):
         db.execute("UPDATE entities SET embedding=? WHERE id=?", (payload, eid))
 
 
+REPORT_LIMIT = 40
+
+
+def _clip(items, limit=REPORT_LIMIT):
+    items = list(items)
+    return items[:limit], len(items)
+
+
+def _entity_name(eid):
+    row = store.entity_row(eid) if eid is not None else None
+    return row["name"] if row else f"#{eid}"
+
+
 def _import_entities(data):
     user_id = store.ensure_user_entity()
     id_map = {}
-    created, merged = 0, 0
+    created, merged, skipped = 0, 0, []
     for e in data["entities"]:
         name = (e.get("name") or "").strip()
         if not name:
+            skipped.append({"reason": "empty_name"})
             continue
         if store.normalize_name(name) in ("user", "i", "me"):
             if e.get("id") is not None:
                 id_map[e["id"]] = user_id
             continue
+        try:
+            conf = float(e.get("confidence", 0.8))
+        except (TypeError, ValueError):
+            skipped.append({"reason": "bad_confidence", "name": name})
+            continue
         eid, is_new = store.upsert_entity(
             name, e.get("type", "concept"), e.get("description", ""),
-            confidence=float(e.get("confidence", 0.8)),
+            confidence=conf,
         )
         if eid is None:
+            skipped.append({"reason": "rejected", "name": name})
             continue
         if is_new:
             created += 1
@@ -2985,39 +2683,81 @@ def _import_entities(data):
         if e.get("id") is not None:
             id_map[e["id"]] = eid
         _apply_entity_flags(eid, e)
-    return id_map, created, merged
+    return id_map, created, merged, skipped
 
 
-def _import_relationships(data, id_map):
+def _import_relationships(data, id_map, apply_exclusive=True):
     added = 0
+    duplicates = 0
+    skipped = []
+    conflicts = []
+    exclusive = set(config.EXCLUSIVE_RELATIONS)
     for r in data["relationships"]:
         sid = id_map.get(r["source_id"])
         tid = id_map.get(r["target_id"])
-        if sid is None or tid is None or sid == tid:
+        raw_rel = r.get("relation") or ""
+        if sid is None or tid is None:
+            skipped.append({
+                "reason": "missing_endpoint",
+                "relation": raw_rel,
+                "source_id": r.get("source_id"),
+                "target_id": r.get("target_id"),
+            })
             continue
-        rel, swap = store.normalize_relation(r["relation"])
+        if sid == tid:
+            skipped.append({
+                "reason": "self_loop",
+                "relation": raw_rel,
+                "name": _entity_name(sid),
+            })
+            continue
+        rel, swap = store.normalize_relation(raw_rel)
         if swap:
             sid, tid = tid, sid
+        if apply_exclusive and rel in exclusive:
+            old_ids = store.supersede_relations_of_type(sid, rel, except_target_id=tid)
+            for oid in old_ids:
+                old = store.entity_row(oid)
+                if old:
+                    conflicts.append({
+                        "kind": "exclusive",
+                        "relation": rel,
+                        "kept": _entity_name(tid),
+                        "superseded": old["name"],
+                    })
+                    store.add_memory(
+                        "conflict",
+                        f'{rel} changed on import: now {_entity_name(tid)} (was {old["name"]})',
+                        entity_ids=[tid, oid],
+                    )
         existed = store.relationship_exists(sid, tid, rel)
-        rid = store.add_relationship(sid, tid, rel,
-                                     confidence=float(r.get("confidence", 0.8)))
+        try:
+            conf = float(r.get("confidence", 0.8))
+        except (TypeError, ValueError):
+            conf = 0.8
+        rid = store.add_relationship(sid, tid, rel, confidence=conf)
         if r.get("status") and r["status"] != "active" and rid:
             store.update_relationship(rid, status=r["status"])
         if not existed:
             added += 1
-    return added
+        else:
+            duplicates += 1
+    return added, skipped, conflicts, duplicates
 
 
 def _import_memories(data, id_map, message_map=None, dedup=True):
     added = 0
+    skipped = 0
     existing = set()
     if dedup:
         existing = {(m["kind"], m["text"]) for m in db.query("SELECT kind, text FROM memories")}
     for m in data.get("memories") or []:
         if not isinstance(m, dict) or not m.get("text"):
+            skipped += 1
             continue
         key = (m.get("kind") or "entity", m["text"])
         if dedup and key in existing:
+            skipped += 1
             continue
         try:
             raw_ids = m.get("entity_ids") or []
@@ -3035,27 +2775,60 @@ def _import_memories(data, id_map, message_map=None, dedup=True):
                 meta = json.loads(meta)
             except ValueError:
                 meta = {}
+        try:
+            conf = float(m.get("confidence", 0.8))
+        except (TypeError, ValueError):
+            conf = 0.8
         store.add_memory(m.get("kind") or "entity", m["text"], entity_ids=eids,
-                         message_id=mid, confidence=float(m.get("confidence", 0.8)),
+                         message_id=mid, confidence=conf,
                          meta=meta)
         existing.add(key)
         added += 1
-    return added
+    return added, skipped
+
+
+def _import_summary(mode, created, merged, added_rels, added_mems,
+                    skipped_ents, skipped_rels, conflicts, duplicates, skipped_mems):
+    skipped_ents, n_ent = _clip(skipped_ents)
+    skipped_rels, n_rel = _clip(skipped_rels)
+    conflicts, n_conf = _clip(conflicts)
+    return {
+        "ok": True, "mode": mode,
+        "entities_created": created,
+        "entities_merged": merged,
+        "relationships_added": added_rels,
+        "memories_added": added_mems,
+        "entities_skipped": n_ent,
+        "relationships_skipped": n_rel,
+        "memories_skipped": skipped_mems,
+        "duplicates": duplicates,
+        "conflicts": conflicts,
+        "skipped": skipped_rels,
+        "report": {
+            "conflicts": conflicts,
+            "skipped_relationships": skipped_rels,
+            "skipped_entities": skipped_ents,
+            "conflict_count": n_conf,
+            "skipped_relationship_count": n_rel,
+            "skipped_entity_count": n_ent,
+            "duplicate_relationships": duplicates,
+            "memories_skipped": skipped_mems,
+        },
+    }
 
 
 def import_merge(data):
     """Merge-import: upsert entities (by name) and add relationships.
-    Preserves existing data. Returns a summary."""
+    Preserves existing data. Returns a summary with skip/conflict details."""
     ok, err = validate_payload(data)
     if not ok:
         return {"ok": False, "error": err}
 
-    id_map, created, merged = _import_entities(data)
-    added_rels = _import_relationships(data, id_map)
-    added_mems = _import_memories(data, id_map, dedup=True)
-    return {"ok": True, "mode": "merge", "entities_created": created,
-            "entities_merged": merged, "relationships_added": added_rels,
-            "memories_added": added_mems}
+    id_map, created, merged, skipped_ents = _import_entities(data)
+    added_rels, skipped_rels, conflicts, duplicates = _import_relationships(data, id_map)
+    added_mems, skipped_mems = _import_memories(data, id_map, dedup=True)
+    return _import_summary("merge", created, merged, added_rels, added_mems,
+                           skipped_ents, skipped_rels, conflicts, duplicates, skipped_mems)
 
 
 def import_replace(data):
@@ -3094,12 +2867,11 @@ def import_replace(data):
         if m.get("id") is not None:
             msg_map[m["id"]] = new_mid
 
-    id_map, created, merged = _import_entities(data)
-    added_rels = _import_relationships(data, id_map)
-    added_mems = _import_memories(data, id_map, message_map=msg_map, dedup=False)
-    return {"ok": True, "mode": "replace", "entities_created": created,
-            "entities_merged": merged, "relationships_added": added_rels,
-            "memories_added": added_mems}
+    id_map, created, merged, skipped_ents = _import_entities(data)
+    added_rels, skipped_rels, conflicts, duplicates = _import_relationships(data, id_map)
+    added_mems, skipped_mems = _import_memories(data, id_map, message_map=msg_map, dedup=False)
+    return _import_summary("replace", created, merged, added_rels, added_mems,
+                           skipped_ents, skipped_rels, conflicts, duplicates, skipped_mems)
 
 
 def import_from_json(text, mode="merge"):
@@ -3160,8 +2932,8 @@ def import_notes(text):
 
 <a id="backendextractpy"></a>
 
-- size: 23023 bytes
-- sha256: `7d1344b6e4985c4819275e3a87f55cfb153ad4fb14d23c487cbad897ac4a9387`
+- size: 23019 bytes
+- sha256: `840e9902107f6f3604e0b741c7be60ec0212e1e43df55255a0f838779a4fbf8e`
 
 ````python
 """Automatic memory extraction pipeline.
@@ -3508,7 +3280,7 @@ def extract(text, model=None, source_message_id=None, demo=False):
 
     store.ensure_user_entity()
     threshold = confidence_threshold()
-    exclusive_relations = {"prefers", "lives_in", "works_at"}
+    exclusive_relations = set(config.EXCLUSIVE_RELATIONS)
 
     # ---- Entities ------------------------------------------------------
     id_by_name = {}
@@ -4242,8 +4014,8 @@ def is_trivial(text):
 
 <a id="backendgraphpy"></a>
 
-- size: 12739 bytes
-- sha256: `5f034da5f0a700c04e0bd8c2ad2398bd039349219d426a98f09dfc224d6187ef`
+- size: 15570 bytes
+- sha256: `81f00cce7087ba9175201f0cf5a3e5316bc4ba4695b6048cbd1f87c190798d60`
 
 ````python
 """Graph traversal, filtering, neighborhood, path and statistics.
@@ -4312,6 +4084,7 @@ def neighborhood(entity_id, depth=1, relation=None, active_only=True):
     edge_rows = [edges[rid] for rid in seen_edges if rid in edges]
     return {
         "nodes": [{"id": n["id"], "name": n["name"], "type": n["type"],
+                   "description": n.get("description") or "",
                    "status": n.get("status", "active"), "pinned": n.get("pinned", 0),
                    "important": n.get("important", 0), "confidence": n["confidence"]}
                   for n in nodes.values()],
@@ -4319,6 +4092,74 @@ def neighborhood(entity_id, depth=1, relation=None, active_only=True):
                    "relation": r["relation"], "confidence": r["confidence"],
                    "status": r["status"]} for r in edge_rows],
     }
+
+
+def _serialize_nodes(ents):
+    return [{"id": e["id"], "label": e["name"], "type": e["type"],
+             "description": e.get("description") or "", "confidence": e["confidence"],
+             "pinned": e.get("pinned", 0), "important": e.get("important", 0),
+             "status": e.get("status", "active")} for e in ents]
+
+
+def _serialize_edges(rels):
+    return [{"id": f"e{r['id']}", "source": r["source_id"], "target": r["target_id"],
+             "relation": r["relation"], "confidence": r["confidence"],
+             "status": r.get("status", "active")} for r in rels]
+
+
+def graph_view(focus="auto", depth=2, active_only=True):
+    """Full graph, or User + N hops when the brain is large enough to clutter.
+
+    ``focus=auto`` uses User+depth once there are more than
+    ``GRAPH_FOCUS_THRESHOLD`` entities. Isolated User (no edges) always
+    falls back to the full graph so a new brain is never blank.
+    """
+    ents = store.all_entities()
+    rels = store.all_relationships(active_only=active_only)
+    total_nodes = len(ents)
+    total_edges = len(rels)
+    requested = (focus or "auto").strip().lower()
+    if requested not in ("auto", "user", "all"):
+        requested = "auto"
+    use_focus = requested
+    if requested == "auto":
+        use_focus = "user" if total_nodes > config.GRAPH_FOCUS_THRESHOLD else "all"
+    try:
+        depth = min(max(int(depth or 2), 1), 6)
+    except (TypeError, ValueError):
+        depth = 2
+    meta = {
+        "type_colors": config.TYPE_COLORS,
+        "relation_types": config.RELATION_TYPES,
+        "entity_types": config.ENTITY_TYPES,
+        "depth": depth,
+        "total_nodes": total_nodes,
+        "total_edges": total_edges,
+        "focus": "all",
+        "truncated": False,
+    }
+    if use_focus == "user":
+        uid = store.ensure_user_entity()
+        hood = neighborhood(uid, depth=depth, active_only=active_only)
+        if hood["edges"]:
+            nodes = [{
+                "id": n["id"], "label": n["name"], "type": n["type"],
+                "description": n.get("description") or "",
+                "confidence": n.get("confidence", 0.8),
+                "pinned": n.get("pinned", 0), "important": n.get("important", 0),
+                "status": n.get("status", "active"),
+            } for n in hood["nodes"]]
+            edges = hood["edges"]
+            meta["focus"] = "user"
+            meta["truncated"] = len(nodes) < total_nodes
+            meta["shown_nodes"] = len(nodes)
+            meta["shown_edges"] = len(edges)
+            return {"nodes": nodes, "edges": edges, **meta}
+    nodes = _serialize_nodes(ents)
+    edges = _serialize_edges(rels)
+    meta["shown_nodes"] = len(nodes)
+    meta["shown_edges"] = len(edges)
+    return {"nodes": nodes, "edges": edges, **meta}
 
 
 # --------------------------------------------------------------------------
@@ -4742,7 +4583,7 @@ def embed(model, text):
 <a id="backendpathspy"></a>
 
 - size: 4130 bytes
-- sha256: `5268f3b97e9ab840181316f401777261761047156d7fd392a17ed4b5dba99548`
+- sha256: `426c7a1771feab4b0fd80441459749f4c1c0dd0e35a4a45c282bc7d8c0d10f93`
 
 ````python
 """Persistent, CWD-independent path resolution.
@@ -4768,7 +4609,7 @@ import os
 import sys
 from pathlib import Path
 
-APP_VERSION = "2.3.1"
+APP_VERSION = "2.4.0"
 DB_NAME = "brain.db"
 
 
@@ -4880,7 +4721,7 @@ def ensure_data_dirs(db_path: Path | None = None) -> Path:
 
 ## `backend/requirements-dev.txt`
 
-<a id="backendrequirements-devtxt"></a>
+<a id="backendrequirementsdevtxt"></a>
 
 - size: 242 bytes
 - sha256: `cba222612690fe38756a122c48733174a7fef6874fb447957b8b98a355696869`
@@ -5803,8 +5644,8 @@ def is_question(text):
 
 <a id="backendstorepy"></a>
 
-- size: 18480 bytes
-- sha256: `30ac5c95e9b277eefbbf6c36ed0c507c44e4691cbf602cdb1c96ca7eb211d72a`
+- size: 20323 bytes
+- sha256: `74ca589deff301e2e947cc99185b5a3ab089d2cff5348a6c31abbe9f599afbe8`
 
 ````python
 """Graph store: entities, relationships, conversations, memories, messages.
@@ -6240,6 +6081,61 @@ def all_conversations():
     return db.query("SELECT * FROM conversations ORDER BY updated_at DESC, id DESC")
 
 
+def _like_pattern(query):
+    raw = (query or "").strip()
+    if not raw:
+        return None
+    escaped = raw.replace("#", "##").replace("%", "#%").replace("_", "#_")
+    return f"%{escaped}%"
+
+
+def conversation_summaries(query=None, limit=200):
+    """List conversations with counts/previews. Optional title+message search.
+
+    Does not load every message row. LIKE wildcards in ``query`` are escaped
+    so ``%`` cannot dump the whole rail.
+    """
+    try:
+        limit = max(1, min(int(limit or 200), 500))
+    except (TypeError, ValueError):
+        limit = 200
+    like = _like_pattern(query)
+    params = []
+    where = ""
+    if like:
+        where = (
+            "WHERE c.id IN ("
+            "  SELECT id FROM conversations WHERE title LIKE ? ESCAPE '#' "
+            "  UNION "
+            "  SELECT conversation_id FROM messages "
+            "  WHERE conversation_id IS NOT NULL AND content LIKE ? ESCAPE '#'"
+            ")"
+        )
+        params.extend([like, like])
+    sql = (
+        "SELECT c.id, c.title, c.created_at, c.updated_at, "
+        "  (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id) AS message_count, "
+        "  (SELECT m.content FROM messages m WHERE m.conversation_id=c.id AND m.role='user' "
+        "   ORDER BY m.id DESC LIMIT 1) AS preview "
+        "FROM conversations c "
+        f"{where} "
+        "ORDER BY c.updated_at DESC, c.id DESC LIMIT ?"
+    )
+    params.append(limit)
+    rows = db.query(sql, tuple(params))
+    out = []
+    for c in rows:
+        out.append({
+            "id": c["id"],
+            "title": c["title"] or "(untitled)",
+            "created_at": c["created_at"],
+            "updated_at": c["updated_at"],
+            "message_count": int(c.get("message_count") or 0),
+            "preview": (c.get("preview") or "")[:80],
+        })
+    return out
+
+
 def current_conversation_id():
     cid = db.get_setting("current_conversation_id")
     if cid is None:
@@ -6495,8 +6391,8 @@ def summarize_all(limit=10):
 
 <a id="frontendappjs"></a>
 
-- size: 65236 bytes
-- sha256: `28775f9ad54e0da9531046cfea4d43952f55d258790a6f664cd31d5a94ba368f`
+- size: 67164 bytes
+- sha256: `f9756e2ece7c625df29ed612d9f79c1997e8dbf73fa1c07bc8246afefa2d696e`
 
 ````javascript
 /* ==========================================================================
@@ -6907,10 +6803,11 @@ $("#chat-new").addEventListener("click", async () => {
 async function loadConversations() {
   const list = $("#conv-list");
   if (!list) return;
+  const q = ($("#conv-search") && $("#conv-search").value.trim()) || "";
   try {
-    const convs = await api("/conversations");
+    const convs = await api("/conversations" + (q ? ("?q=" + encodeURIComponent(q)) : ""));
     if (!convs.length) {
-      list.innerHTML = `<p class="muted">No conversations yet.</p>`;
+      list.innerHTML = `<p class="muted">${q ? "No conversations match." : "No conversations yet."}</p>`;
       return;
     }
     list.innerHTML = convs.map((c) => `
@@ -6942,13 +6839,24 @@ async function loadConversations() {
         loadConversations();
       }));
     const src = $("#sf-source");
-    if (src) {
+    if (src && !q) {
       const cur = src.value;
       src.innerHTML = `<option value="">Any source</option>` +
         convs.map((c) => `<option value="${c.id}">${esc(c.title || "Conversation " + c.id)}</option>`).join("");
       src.value = cur;
     }
   } catch {}
+}
+
+if ($("#conv-search")) {
+  let convSearchTimer = null;
+  $("#conv-search").addEventListener("input", () => {
+    clearTimeout(convSearchTimer);
+    convSearchTimer = setTimeout(loadConversations, 180);
+  });
+  $("#conv-search").addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.target.value = ""; loadConversations(); }
+  });
 }
 
 async function renameConversation(id, el) {
@@ -7106,10 +7014,17 @@ function applyTypeFilter() {
   applyConnectedFilter();
 }
 
-async function buildGraph() {
-  const g = await api("/graph");
+async function buildGraph(opts = {}) {
+  const aroundEl = $("#gf-around-me");
+  let focus = opts.focus;
+  if (!focus) focus = (aroundEl && aroundEl.checked) ? "user" : "auto";
+  const g = await api("/graph?focus=" + encodeURIComponent(focus) + "&depth=2");
   graphNodes = g.nodes;
   typeColors = g.type_colors || TYPE_COLORS;
+  if (aroundEl && g.focus === "user") aroundEl.checked = true;
+  if (g.truncated && $("#gf-layout") && $("#gf-layout").value === "cose") {
+    $("#gf-layout").value = "breadthfirst";
+  }
   const nodes = g.nodes.map((n) => ({ data: { id: n.id, label: n.label, type: n.type, description: n.description, pinned: n.pinned, important: n.important, status: n.status } }));
   const edges = g.edges.map((e) => ({ data: { id: e.id, source: e.source, target: e.target, relation: e.relation, status: e.status } }));
   if (!cy) initGraph();
@@ -7119,7 +7034,11 @@ async function buildGraph() {
   cy.edges().forEach((e) => { if (e.data("status") === "superseded") e.addClass("superseded"); });
   buildLegend();
   applyTypeFilter();
-  $("#graph-sub").textContent = `${g.nodes.length} entities · ${g.edges.length} relationships`;
+  if (g.truncated) {
+    $("#graph-sub").textContent = `You + ${g.depth} hops · ${g.nodes.length} of ${g.total_nodes} entities · Reset view for the full graph`;
+  } else {
+    $("#graph-sub").textContent = `${g.nodes.length} entities · ${g.edges.length} relationships`;
+  }
   populateFilterDropdowns(g);
   runGraphLayout();
 }
@@ -7245,6 +7164,11 @@ function applyConnectedFilter() {
 $("#graph-apply").addEventListener("click", applyGraphFilters);
 if ($("#gf-layout")) $("#gf-layout").addEventListener("change", runGraphLayout);
 if ($("#gf-connected")) $("#gf-connected").addEventListener("change", applyConnectedFilter);
+if ($("#gf-around-me")) {
+  $("#gf-around-me").addEventListener("change", () => {
+    buildGraph({ focus: $("#gf-around-me").checked ? "user" : "all" });
+  });
+}
 if ($("#gf-confidence")) {
   $("#gf-confidence").addEventListener("input", (e) => {
     const el = $("#gf-conf-val");
@@ -7316,10 +7240,11 @@ $("#graph-reset").addEventListener("click", async () => {
   $("#gf-type").value = ""; $("#gf-relation").value = "";
   $("#gf-superseded").checked = false; $("#gf-pinned").checked = false; $("#gf-important").checked = false;
   if ($("#gf-connected")) $("#gf-connected").checked = false;
+  if ($("#gf-around-me")) $("#gf-around-me").checked = false;
   if ($("#gf-layout")) $("#gf-layout").value = "cose";
   $$(".legend-row").forEach((r) => r.classList.remove("off"));
   hiddenTypes.clear();
-  await buildGraph();
+  await buildGraph({ focus: "all" });
   cy.fit(undefined, 50);
   closeEntity();
 });
@@ -7815,14 +7740,29 @@ $("#export-md").addEventListener("click", async () => {
   toast("Markdown exported");
 });
 
+function formatImportReport(r) {
+  if (!r || !r.ok) return "Error: " + ((r && r.error) || "import failed");
+  let msg = r.mode === "replace"
+    ? `Replaced: ${r.entities_created} entities imported.`
+    : `Merged: ${r.entities_created} created, ${r.entities_merged} merged, ${r.relationships_added} relationships.`;
+  const conflicts = r.conflicts || (r.report && r.report.conflicts) || [];
+  if (conflicts.length) {
+    msg += " Conflicts: " + conflicts.slice(0, 8).map((c) =>
+      `${c.relation} now ${c.kept} (was ${c.superseded})`).join("; ") + ".";
+  }
+  const skippedRels = r.relationships_skipped || 0;
+  const skippedMems = r.memories_skipped || 0;
+  if (skippedRels) msg += ` Skipped ${skippedRels} relationship(s).`;
+  if (skippedMems) msg += ` ${skippedMems} duplicate memories ignored.`;
+  return msg;
+}
+
 $("#import-merge").addEventListener("click", async () => {
   const data = $("#import-data").value.trim();
   if (!data) return;
   try {
     const r = await api("/import", { method: "POST", body: JSON.stringify({ data, mode: "merge" }) });
-    $("#import-status").textContent = r.ok
-      ? `Merged: ${r.entities_created} created, ${r.entities_merged} merged, ${r.relationships_added} relationships.`
-      : "Error: " + r.error;
+    $("#import-status").textContent = formatImportReport(r);
     if (r.ok) { loadDashboard(); buildGraph(); }
   } catch (e) { $("#import-status").textContent = "Error: " + e.message; }
 });
@@ -7833,9 +7773,7 @@ $("#import-replace").addEventListener("click", async () => {
   if (!confirm("Replace the ENTIRE database with this import? This wipes all current data.")) return;
   try {
     const r = await api("/import", { method: "POST", body: JSON.stringify({ data, mode: "replace", confirm: true }) });
-    $("#import-status").textContent = r.ok
-      ? `Replaced: ${r.entities_created} entities imported.`
-      : "Error: " + r.error;
+    $("#import-status").textContent = formatImportReport(r);
     if (r.ok) { loadDashboard(); buildGraph(); loadMemory(); }
   } catch (e) { $("#import-status").textContent = "Error: " + e.message; }
 });
@@ -8026,8 +7964,8 @@ boot();
 
 <a id="frontendindexhtml"></a>
 
-- size: 18495 bytes
-- sha256: `5fb9e4b2ddc014c7f3fbabb091e99c70de3aa69f397fa6e66d6ea290288ef9b1`
+- size: 18760 bytes
+- sha256: `8c14c50f54b4ea533523e9141eba543b46c7cea29277dea480433155a3b6f214`
 
 ````html
 <!DOCTYPE html>
@@ -8144,6 +8082,7 @@ boot();
         <div class="chat-layout">
           <aside class="conv-rail">
             <div class="conv-rail-head">Conversations</div>
+            <input id="conv-search" class="input" type="search" placeholder="Search chats…" autocomplete="off" />
             <div id="conv-list" class="conv-list"></div>
           </aside>
         <div class="chat-wrap">
@@ -8206,6 +8145,10 @@ boot();
           <label class="toggle small">
             <input type="checkbox" id="gf-connected" />
             <span>Connected only</span>
+          </label>
+          <label class="toggle small">
+            <input type="checkbox" id="gf-around-me" />
+            <span>Around me</span>
           </label>
           <button class="btn-ghost" id="graph-apply">Apply filters</button>
         </div>
@@ -8479,8 +8422,8 @@ boot();
 
 <a id="frontendstylecss"></a>
 
-- size: 28065 bytes
-- sha256: `4d05de149b7d14c18c8875cc1cb76703cebd097f8f25a86227b0119a0b890133`
+- size: 28208 bytes
+- sha256: `995b4c5143e76a1b2ab5657f35c9f5112bf434378cdf222d65d345f17fd3f348`
 
 ````css
 /* ==========================================================================
@@ -8972,6 +8915,8 @@ button { font-family: var(--font); }
   padding: 12px; overflow-y: auto; min-height: 160px;
 }
 .conv-rail-head { font-size: 11px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
+#conv-search { width: 100%; margin-bottom: 10px; padding: 7px 10px; font-size: 12.5px; }
+.conv-list { display: flex; flex-direction: column; }
 .conv-item {
   padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 4px;
   border: 1px solid transparent; position: relative;
@@ -9116,10 +9061,10 @@ var is=function(){function e(e){return-e.tension*e.x-e.friction*e.v}function t(t
 
 ## `launcher/__init__.py`
 
-<a id="launcher__init__py"></a>
+<a id="launcherinitpy"></a>
 
 - size: 222 bytes
-- sha256: `b435affec20a78d602ac50a35ff396d87366f502033cbcc03fb1284a4a02ea4d`
+- sha256: `b8e7b92eb4c8b1d6a01fc66d7017ff2c1396ab28a4afd6fc71c288b5b1c470ba`
 
 ````python
 """Windows EXE / desktop bootstrapper for the existing Second Brain app.
@@ -9128,12 +9073,12 @@ This package does not reimplement memory, search, or the API. It only
 checks the environment and starts ``backend.app``.
 """
 
-__version__ = "2.3.1"
+__version__ = "2.4.0"
 ````
 
 ## `launcher/__main__.py`
 
-<a id="launcher__main__py"></a>
+<a id="launchermainpy"></a>
 
 - size: 3376 bytes
 - sha256: `c44ad0ff032d31583a8569e21c94799c859d3178da9a934feec6317842b992a5`
@@ -9567,7 +9512,7 @@ def wait_for_http(url: str, timeout: float = 30.0) -> bool:
 
 ## `launcher/build_exe.py`
 
-<a id="launcherbuild_exepy"></a>
+<a id="launcherbuildexepy"></a>
 
 - size: 1617 bytes
 - sha256: `e1b3b0110efceb3561847e4c9b207eb22e34ab885e986797b5052b475dd42e32`
@@ -10055,6 +10000,262 @@ filterwarnings =
     ignore::DeprecationWarning
 ````
 
+## `README.md`
+
+<a id="READMEmd"></a>
+
+- size: 7582 bytes
+- sha256: `7fdcf7a724bb351d59ec035ec871844b85bd9bbb5e6fd03a76f5f5966e19692d`
+
+````markdown
+# Second Brain — Local AI Knowledge Graph
+
+A **local, private Second Brain**. You talk to it. It extracts durable facts
+into a SQLite knowledge graph, then answers later questions from that memory.
+
+Nothing leaves the machine unless you export it. Ollama is optional.
+
+```
+Browser  →  FastAPI  →  SQLite
+                    ↘  Ollama (optional)
+                    ↘  deterministic fallback if Ollama is down
+```
+
+Reliability over cleverness. The database is the source of truth. The graph
+visualizes the database. RAG never invents personal facts.
+
+---
+
+## How it works
+
+```
+message → command? → trivial filter → extract (Ollama or rules)
+       → validate → normalize → duplicate merge → conflict/supersede
+       → confidence → SQLite → graph + timeline → search/RAG
+```
+
+- Default extraction model: `qwen3:0.6b` (small on purpose)
+- Default embeddings: `nomic-embed-text`
+- Both are configurable in Settings or `.env` — no code changes
+- LLM extraction is validated against the user's words, then merged with the
+  deterministic fallback. Unsupported personal facts are dropped.
+- Answers are **KNOWN / UNCERTAIN / UNKNOWN**
+- History is kept; superseded facts stay available but are not treated as current
+
+---
+
+## Requirements
+
+| Tool | Version |
+|------|---------|
+| Python | 3.11+ (3.11.9 recommended) |
+| Ollama | optional |
+| Node.js | not required to run |
+
+Target hardware: Windows 11, i7-12700F, RTX 4060 Ti 8GB, 32GB RAM.
+
+---
+
+## Windows 11 setup
+
+### Option A — double-click `SecondBrain.exe`
+
+Build on **Windows 11** from a Python 3.11 environment (PyInstaller cannot cross-compile a PE from Linux):
+
+```powershell
+python -m pip install -r requirements.txt
+python -m pip install pyinstaller
+python -m launcher.build_exe
+```
+
+That produces **`dist/SecondBrain.exe`**. Double-click it.
+
+First launch shows a dark setup window (version, current step, progress, log, Ollama status). It:
+
+- checks the packaged runtime
+- finds an existing `brain.db` next to the EXE (`dist\data\brain.db`) or under `%LOCALAPPDATA%\SecondBrain\data\brain.db`
+- creates that file only if none exists — it never deletes, resets, or replaces a brain
+- probes Ollama over HTTP (`qwen3:0.6b`, `nomic-embed-text`)
+- does **not** download models unless you set `SECOND_BRAIN_PULL_MODELS=1`
+- starts the **existing** FastAPI app and opens the browser
+
+If Ollama is down, the window says offline and the app uses the rule-based fallback. It does not crash.
+
+Later launches skip installs, skip model downloads, and reopen the same database. The setup window stays open with **Open browser** / **Quit** so the server is not killed when the first-run checks finish.
+
+`start.py` remains the normal Python launcher. The EXE is an additional bootstrapper, not a second application.
+
+### Option B — Python launcher
+
+### 1. Optional: Ollama
+
+Install from https://ollama.com then:
+
+```powershell
+ollama pull qwen3:0.6b
+ollama pull nomic-embed-text
+```
+
+The app starts and works without this. Offline mode uses the rule-based extractor.
+
+### 2. First startup
+
+```powershell
+cd second-brain
+python start.py
+```
+
+`start.py` is the only primary launcher. It:
+
+- requires Python 3.11+
+- creates `.venv` only if runtime imports are missing
+- installs **only** missing packages
+- never reinstalls on later runs
+- probes Ollama over HTTP (offline is valid)
+- binds `0.0.0.0:8000`
+
+Open **http://localhost:8000**.
+
+### 3. Subsequent startup
+
+```powershell
+python start.py
+```
+
+No downloads. No reinstall.
+
+### 4. Useful flags
+
+```powershell
+python start.py --check          # diagnose, do not start
+python start.py --check-only     # same
+python start.py --no-install     # fail if deps are missing
+python start.py --dev            # auto-reload
+python start.py --open           # open the local URL
+python start.py --host 0.0.0.0 --port 8000
+```
+
+Works from any working directory; paths are resolved from `start.py`.
+
+### 5. Tests
+
+```powershell
+python -m pip install pytest httpx
+python test_overall.py
+```
+
+---
+
+## Configuration
+
+Copy `.env.example` to `.env`, or use Settings:
+
+```
+OLLAMA_MODEL=qwen3:0.6b
+EMBEDDING_MODEL=nomic-embed-text
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+Runtime Settings: models, Ollama URL (http/https only), confidence threshold,
+duplicate-merge threshold, auto-memory, automatic local backup interval, theme.
+
+---
+
+## Memory system
+
+Greetings, thanks, and jokes are not stored.
+
+Durable statements become entities and relationships with confidence, source
+message, and timestamps. Duplicates merge. Exclusive facts (`prefers`,
+`lives_in`, `works_at`) supersede the previous active one. “I stopped …” and
+“I switched from X to Y” supersede the old fact. History remains.
+
+Commands (deterministic, always hit SQLite):
+
+Remember · Forget · Remove · Pin · Unpin · Important · Unimportant · Merge ·
+Rename · Change · Set confidence · Stop remembering
+
+The chat rail can search conversation titles and message text.
+
+Forgetting a preference or a “learning X” fact **supersedes** it. It does not
+silently delete history.
+
+---
+
+## Search / RAG
+
+Keyword + semantic + graph + recency + confidence + active/superseded + bounded
+multi-hop. Short names (`Go`, `C#`, `AI`) are searchable. Direct questions
+such as “Where do I live?” or “What technology does the game engine use?”
+read the graph first. If there is no evidence, the answer is UNKNOWN.
+
+---
+
+## Graph
+
+Cytoscape visualization of the real SQLite graph. Pan, zoom, search, type /
+relation / confidence / status / pinned / important filters, expand, focus,
+edit, delete, merge. Layouts: force, group-by-type, from-User. Relationship
+types can be edited on an entity. Isolated nodes can be hidden. No fabricated
+nodes. Brains larger than 40 entities default to **Around me** (User + 2 hops);
+Reset view loads the full graph.
+
+---
+
+## Backup / export / import
+
+- JSON + Markdown export
+- Merge import or replace import (replace requires `confirm=true`)
+- Merge import reports exclusive-fact conflicts and skipped relationships
+- User relationships are remapped
+- Local backups under `data/backups/` (SQLite + JSON + MD)
+- Optional automatic local backups (default every 24 hours; never deletes)
+- Secrets are not exported
+- Reset requires confirmation
+- Restore a named local backup (creates a safety snapshot first)
+- Paste notes (plain text / markdown paragraphs) to extract memories
+
+---
+
+## Privacy
+
+Local-first. No telemetry. No cloud accounts. The only optional network call is
+the Ollama URL you configure.
+
+---
+
+## Project layout
+
+```
+second-brain/
+├── start.py               # primary Python launcher
+├── launcher/              # EXE bootstrapper + setup GUI (not a second app)
+├── secondbrain.spec       # PyInstaller spec → dist/SecondBrain.exe
+├── test_overall.py
+├── requirements.txt
+├── README.md
+├── ROADMAP
+├── projekt.md             # full first-party source archive
+├── .env.example
+├── .gitignore
+├── backend/
+├── frontend/
+├── tests/
+└── data/brain.db          # created on first run; never deleted by the EXE
+```
+
+---
+
+## Limitations
+
+- Single-user, local only
+- Offline extractor is intentionally small; hard phrasing is better with Ollama
+- SSE chat extracts first, then streams the reply token-by-token when Ollama is up
+- Playwright browser tests skip if Chromium is not installed
+- Learning several things at once is allowed unless you stop or switch
+- `SecondBrain.exe` must be built on Windows (PyInstaller does not cross-compile a PE from Linux)
+````
+
 ## `requirements.txt`
 
 <a id="requirementstxt"></a>
@@ -10069,6 +10270,69 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 requests>=2.31
 numpy>=1.26
+````
+
+## `ROADMAP`
+
+<a id="ROADMAP"></a>
+
+- size: 2312 bytes
+- sha256: `8c5dc71b1654f1688f3ca968b5020cc44baed2c83935414e2767126baae45d17`
+
+````
+# Second Brain — Roadmap
+
+Local-first personal AI memory. Reliability over cleverness.
+The database is the source of truth.
+
+## Done
+
+- Chat, conversations, last-N context, persisted assistant replies
+- Automatic extraction (Ollama + honest offline fallback)
+- Deterministic memory commands including Important / Unimportant
+- Entities, relationships, facts, aliases, confidence, sources, timestamps
+- Active / superseded / pinned / important
+- Duplicate merge and exclusive-fact supersession
+- Knowledge graph as a visualization of SQLite
+- Hybrid search + multi-hop RAG with KNOWN / UNCERTAIN / UNKNOWN
+- Memory consolidation (originals kept)
+- JSON / Markdown export; validated merge / replace import
+- Local backups (SQLite + JSON + MD)
+- Dashboard from live data; labelled demo data
+- Settings, privacy panel, confirmed reset/replace
+- start.py as the only primary Python launcher (no setup.py, no start.bat)
+- SecondBrain.exe bootstrapper (PyInstaller) with a setup GUI; same FastAPI app
+- Backup restore with safety snapshot; unique backup folders
+- Entity browser, command palette, hash routing, conversation rename
+- Yes/no fact questions and list extraction (Python, Rust, and Go)
+- Natural command detection (no hijacking of "remember when")
+- Tell-me-about / path questions with source snippets
+- Note paragraph import; graph path + add-relationship
+- Strict LLM extraction validation + merge with deterministic fallback
+- Token-level SSE streaming after extraction / retrieval
+- Scheduled local backups (opt-in interval, default 24h)
+- Graph layouts (force / by type / from User) and relationship-type editing
+- Direct NL answers for live / work / prefer / use-of questions
+- Full first-party source archive in projekt.md
+- Grounded Ollama answers (invented tech/entities dropped)
+- Auto-backup after memory writes, not on the health poll
+- Conversation search in the chat rail (title + message text)
+- Default graph view is User + 2 hops on large brains
+- Merge-import conflict / skip report
+- Tighter Important / Unimportant command detection
+
+## Next (optional)
+
+- Explicit user-initiated binary file ingest
+- Tray icon / background service for the EXE
+
+## Non-goals
+
+- Cloud sync by default
+- Telemetry
+- Inventing personal memories
+- A second graph store
+- A second extraction implementation
 ````
 
 ## `run.py`
@@ -10482,10 +10746,10 @@ if __name__ == "__main__":
 
 ## `test_overall.py`
 
-<a id="test_overallpy"></a>
+<a id="testoverallpy"></a>
 
-- size: 17435 bytes
-- sha256: `6617054b2310a070961a43a8661f946dcf1077a900b14a713bed90a80642a9d9`
+- size: 17512 bytes
+- sha256: `b1b90d7ccdcc95bd7448333445de91bfa4fd6583fbfc51164b9292aacdef1a6c`
 
 ````python
 #!/usr/bin/env python3
@@ -10917,6 +11181,8 @@ def test_frontend_served(client):
     assert 'id="import-notes"' in html
     assert 'id="gf-layout"' in html
     assert 'id="set-auto-backup"' in html
+    assert 'id="conv-search"' in html
+    assert 'id="gf-around-me"' in html
 
 
 def test_core_loop_chat_memory_graph_search_rag(client):
@@ -11064,10 +11330,10 @@ def fake_ollama(monkeypatch):
 
 ## `tests/test_api.py`
 
-<a id="teststest_apipy"></a>
+<a id="teststestapipy"></a>
 
-- size: 8685 bytes
-- sha256: `2a22e0bba2d8fde2b47176e5cdd683cd5e083e3076698d2311d9db39d018b442`
+- size: 10176 bytes
+- sha256: `a5fd69510565c23324922b967204e072b47f92aa54e03e40905ed0fcf420cc4a`
 
 ````python
 """API integration tests using FastAPI's TestClient."""
@@ -11272,7 +11538,7 @@ def test_import_notes_extracts_paragraphs(client):
 
 def test_health_reports_version(client):
     h = client.get("/api/health").json()
-    assert h.get("version") == "2.3.1"
+    assert h.get("version") == "2.4.0"
     assert h.get("db_ok") is True
     assert "auto_backup" in h
 
@@ -11307,11 +11573,46 @@ def test_import_rejects_oversized_payload(client):
     huge = "x" * (8 * 1024 * 1024 + 50)
     r = client.post("/api/import", json={"data": huge, "mode": "merge"})
     assert r.status_code == 400
+
+
+def test_conversation_search_by_message_body(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    client.post("/api/conversations/new")
+    client.post("/api/chat", json={"content": "I live in Berlin"})
+    hits = client.get("/api/conversations", params={"q": "Berlin"}).json()
+    assert len(hits) >= 1
+    none = client.get("/api/conversations", params={"q": "zzzz-no-such-chat"}).json()
+    assert none == []
+    wild = client.get("/api/conversations", params={"q": "%"}).json()
+    assert wild == []
+
+
+def test_graph_focus_user_hides_islands(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    from backend import store
+    for i in range(45):
+        store.create_entity(f"Island {i}", "concept")
+    auto = client.get("/api/graph", params={"focus": "auto"}).json()
+    assert auto["focus"] == "user"
+    labels = {n["label"] for n in auto["nodes"]}
+    assert "Rust" in labels
+    assert "Island 0" not in labels
+    full = client.get("/api/graph", params={"focus": "all"}).json()
+    assert any(n["label"] == "Island 0" for n in full["nodes"])
+
+
+def test_chat_empty_and_huge_payload(client):
+    empty = client.post("/api/chat", json={"content": "   "})
+    assert empty.status_code == 200
+    assert empty.json()["trivial"] is True
+    huge = client.post("/api/chat", json={"content": "I am learning Python. " + ("x" * 20000)})
+    assert huge.status_code == 200
+    assert store.find_entity_by_name("Python") is not None
 ````
 
 ## `tests/test_api_phase3.py`
 
-<a id="teststest_api_phase3py"></a>
+<a id="teststestapiphase3py"></a>
 
 - size: 5976 bytes
 - sha256: `fbefa92e3deb5215e3213deead001f9a2a858d39ec72fe504ae5d1208904ab66`
@@ -11492,7 +11793,7 @@ def test_entity_history_endpoint(client):
 
 ## `tests/test_backup.py`
 
-<a id="teststest_backuppy"></a>
+<a id="teststestbackuppy"></a>
 
 - size: 3220 bytes
 - sha256: `a9a8a9e3dceec173ea36cb7b8a69a64df4a45a95786dbf8163b208b7a73b0feb`
@@ -11597,10 +11898,10 @@ def test_no_secrets_in_backup():
 
 ## `tests/test_commands.py`
 
-<a id="teststest_commandspy"></a>
+<a id="teststestcommandspy"></a>
 
-- size: 5709 bytes
-- sha256: `22c8a3396ff66cf7b6256018f5f87d8600c851c15c49aa5f6e4a514e2524cb53`
+- size: 6002 bytes
+- sha256: `61c12c2dae5ac802c27d75edc1069f3b8b04941c2b0133bdaca31147f8665500`
 
 ````python
 """Tests for natural-language memory control commands."""
@@ -11619,6 +11920,11 @@ def test_remember_command_recognized():
     assert not commands.is_command("I forgot my keys at the office")
     assert not commands.is_command("Please remind me to learn Rust")
     assert not commands.is_command("We should remember this for later")
+    assert not commands.is_command("Important meeting tomorrow")
+    assert not commands.is_command("I remember living in Berlin")
+    assert not commands.is_command("This is important to me")
+    assert commands.is_command("Important Rust")
+    assert commands.is_command("Unimportant Rust")
 
 
 def test_forget_supersedes_learning():
@@ -11760,10 +12066,10 @@ def test_stop_remembering_forgets_entity():
 
 ## `tests/test_export.py`
 
-<a id="teststest_exportpy"></a>
+<a id="teststestexportpy"></a>
 
-- size: 4400 bytes
-- sha256: `1ad892020d8088f94e302e224fc376b87229c64146064dfb0d6c9034c6e2f93a`
+- size: 5750 bytes
+- sha256: `b41f23805b91cbdd659b8f14cf20823ccebfb4b7f2925bcc734168c77862689d`
 
 ````python
 """Tests for JSON/Markdown export and import (validation, merge, replace)."""
@@ -11901,11 +12207,44 @@ def test_note_chunk_split_and_import():
     r = export.import_notes("I am learning Python.\n\nMy project Nebula uses Ollama.")
     assert r["ok"] is True
     assert store.find_entity_by_name("Python") is not None
+
+
+def test_import_merge_reports_exclusive_conflict_and_skips():
+    extract.extract("I live in Berlin")
+    uid = store.ensure_user_entity()
+    payload = {
+        "format": "second-brain", "version": 1,
+        "entities": [
+            {"id": uid, "name": "User", "type": "person", "confidence": 1.0},
+            {"id": 99, "name": "Paris", "type": "location", "confidence": 0.9},
+        ],
+        "relationships": [
+            {"source_id": uid, "target_id": 99, "relation": "lives_in", "confidence": 0.9},
+            {"source_id": 12345, "target_id": 99, "relation": "related_to", "confidence": 0.5},
+        ],
+    }
+    r = export.import_merge(payload)
+    assert r["ok"] is True
+    assert r["conflicts"]
+    assert any(c.get("superseded") == "Berlin" for c in r["conflicts"])
+    assert r["relationships_skipped"] >= 1
+    assert any(s.get("reason") == "missing_endpoint" for s in r["skipped"])
+    paris = store.find_entity_by_name("Paris")
+    berlin = store.find_entity_by_name("Berlin")
+    assert paris and berlin
+    rels = db.query(
+        "SELECT * FROM relationships WHERE source_id=? AND relation='lives_in'",
+        (uid,),
+    )
+    active = [x for x in rels if x["status"] == "active"]
+    assert len(active) == 1
+    assert active[0]["target_id"] == paris["id"]
+    assert r.get("report") and "conflicts" in r["report"]
 ````
 
 ## `tests/test_extraction.py`
 
-<a id="teststest_extractionpy"></a>
+<a id="teststestextractionpy"></a>
 
 - size: 10392 bytes
 - sha256: `042f536827a8fcde86f27c33e04263b4dd0dc35dbba34617b931ae86e1c5b5c9`
@@ -12185,10 +12524,10 @@ def test_confidence_threshold_respected(no_ollama, monkeypatch):
 
 ## `tests/test_frontend.py`
 
-<a id="teststest_frontendpy"></a>
+<a id="teststestfrontendpy"></a>
 
-- size: 5219 bytes
-- sha256: `8aec51bfae1de9c482b0ac370b30b8d3529410b12403a9c110219eb83c4d73b8`
+- size: 5376 bytes
+- sha256: `744d365732447b448c38f50832e9f0b570c2f30be238d6b9d069b4731b1f916b`
 
 ````python
 """Playwright browser tests for the Second Brain frontend.
@@ -12314,7 +12653,11 @@ def test_entity_browser_and_palette_markup():
     assert 'id="backup-list"' in html
     assert 'id="gf-layout"' in html
     assert 'id="set-auto-backup"' in html
+    assert 'id="conv-search"' in html
+    assert 'id="gf-around-me"' in html
     assert "function loadBrowse" in js
+    assert "function formatImportReport" in js
+    assert "/graph?focus=" in js
     assert "function openPalette" in js
     assert "function runGraphLayout" in js
     assert "sources: m.sources" in js
@@ -12344,10 +12687,10 @@ def test_reset_confirmation(page):
 
 ## `tests/test_graph.py`
 
-<a id="teststest_graphpy"></a>
+<a id="teststestgraphpy"></a>
 
-- size: 4123 bytes
-- sha256: `cf8d3a2236e8dfa19a68d250db45b9101182b5f999565f2ef3a07ae3e103c051`
+- size: 4805 bytes
+- sha256: `964361a8a690e1fdc7fe2cf7b5b2e669344c00711e63aad8630bbadf20ccd60e`
 
 ````python
 """Tests for graph traversal, filtering, neighborhood, paths, stats and
@@ -12479,11 +12822,29 @@ def test_explainable_rank():
     assert ranked, "should rank Rust first"
     top = ranked[0]
     assert "reasons" in top and isinstance(top["reasons"], list)
+
+
+def test_graph_auto_focus_user_neighborhood():
+    extract.extract("I am learning Rust")
+    for i in range(45):
+        store.create_entity(f"Island {i}", "concept")
+    g = graph.graph_view(focus="auto", depth=2)
+    assert g["focus"] == "user"
+    assert g["truncated"] is True
+    labels = {n["label"] for n in g["nodes"]}
+    assert "User" in labels and "Rust" in labels
+    assert "Island 0" not in labels
+    full = graph.graph_view(focus="all")
+    assert full["focus"] == "all"
+    assert any(n["label"] == "Island 0" for n in full["nodes"])
+    small = graph.graph_view(focus="auto")
+    # After creating islands, auto stays on user.
+    assert small["focus"] == "user"
 ````
 
 ## `tests/test_launcher.py`
 
-<a id="teststest_launcherpy"></a>
+<a id="teststestlauncherpy"></a>
 
 - size: 8594 bytes
 - sha256: `c90d6673d3ee2d3a5f5063ddd9dbebc1627dea526e06a953252d5d7e42469438`
@@ -12741,7 +13102,7 @@ def test_create_server_uses_existing_app():
 
 ## `tests/test_migration.py`
 
-<a id="teststest_migrationpy"></a>
+<a id="teststestmigrationpy"></a>
 
 - size: 3365 bytes
 - sha256: `9d8c40bf5aae78e0b0d44a87f40001ea143646dc235791c479c903278b0a2ded`
@@ -12829,7 +13190,7 @@ def test_migration_idempotent(monkeypatch, tmp_path):
 
 ## `tests/test_ollama.py`
 
-<a id="teststest_ollamapy"></a>
+<a id="teststestollamapy"></a>
 
 - size: 2945 bytes
 - sha256: `664fdc5d39b244cedd8c40f23c6f1f7087ea5c3b9201d0b9e2726aec5f92c6b4`
@@ -12910,9 +13271,56 @@ def test_llm_failure_falls_back_to_rules(fake_ollama, monkeypatch):
     assert "Python" in names
 ````
 
+## `tests/test_reliability.py`
+
+<a id="teststestreliabilitypy"></a>
+
+- size: 1468 bytes
+- sha256: `332f5f2b6b9df96f4e7d2f163a4151b572632c13b01b7596b18734bd75e411ad`
+
+````python
+"""Malformed input, size caps, and database-recovery safety.
+
+These tests never delete or replace a real user brain. They only use the
+isolated fixture database.
+"""
+from backend import config, db, export, store
+
+
+def test_integrity_ok_on_healthy_file():
+    assert db.integrity_ok() is True
+
+
+def test_integrity_ok_false_on_garbage_does_not_rebuild():
+    path = config.DB_PATH
+    with open(path, "wb") as fh:
+        fh.write(b"not a sqlite database at all")
+    assert db.integrity_ok() is False
+    # The file is still there — we do not delete or replace a bad brain.
+    with open(path, "rb") as fh:
+        assert fh.read().startswith(b"not a sqlite")
+
+
+def test_import_rejects_non_object_and_wrong_types():
+    assert export.import_from_json("[]", mode="merge")["ok"] is False
+    assert export.import_from_json("null", mode="merge")["ok"] is False
+    bad = '{"format":"second-brain","entities":"nope","relationships":[]}'
+    assert export.import_from_json(bad, mode="merge")["ok"] is False
+
+
+def test_conversation_summaries_escape_like_wildcards():
+    cid = store.create_conversation("Rust notes")
+    store.add_message("user", "I am learning Rust", conversation_id=cid)
+    hits = store.conversation_summaries(query="Rust")
+    assert any(c["id"] == cid for c in hits)
+    assert store.conversation_summaries(query="%") == []
+    assert store.conversation_summaries(query="_") == []
+    assert store.conversation_summaries(query="no-such-thread") == []
+````
+
 ## `tests/test_search.py`
 
-<a id="teststest_searchpy"></a>
+<a id="teststestsearchpy"></a>
 
 - size: 5454 bytes
 - sha256: `6cf551c08cbc833cc2e8795bb98ea79287686bab4d7d5f9439ee41d3448f1256`
@@ -13089,7 +13497,7 @@ def test_works_at_intent():
 
 ## `tests/test_search_advanced.py`
 
-<a id="teststest_search_advancedpy"></a>
+<a id="teststestsearchadvancedpy"></a>
 
 - size: 3065 bytes
 - sha256: `5747d3557579619d54497f008d221a05154dc3eaf244ff1fa898f85ec8dd2914`
@@ -13190,7 +13598,7 @@ def test_recency_boost_present():
 
 ## `tests/test_store.py`
 
-<a id="teststest_storepy"></a>
+<a id="teststeststorepy"></a>
 
 - size: 6284 bytes
 - sha256: `cd7504c97384e4a3f7f264b7bfa444037854a9245b6300cac03078b75fdf0dcc`
@@ -13369,7 +13777,7 @@ def test_merge_preserves_description():
 
 ## `tests/test_summarize.py`
 
-<a id="teststest_summarizepy"></a>
+<a id="teststestsummarizepy"></a>
 
 - size: 2508 bytes
 - sha256: `406f096e94501d4026f5f2992b6882df87cf8569f1f9b072587f276a7f50edf2`

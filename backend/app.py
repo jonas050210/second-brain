@@ -33,8 +33,9 @@ SECURITY_HEADERS = {
 
 from . import backup, commands, config, db, export, extract, ollama, search, store, summarize
 from . import graph as graph_engine
+from .paths import APP_VERSION
 
-app = FastAPI(title="Second Brain", version="2.3.1")
+app = FastAPI(title="Second Brain", version=APP_VERSION)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
@@ -166,7 +167,7 @@ def health():
         "embedding_model": effective_embedding_model(),
         "db_path": config.DB_PATH,
         "models_installed": ollama.list_models(),
-        "version": "2.3.1",
+        "version": APP_VERSION,
         "db_ok": db.integrity_ok(),
         "auto_backup": backup.auto_backup_status(),
     }
@@ -422,17 +423,8 @@ def get_message(mid: int):
 
 
 @app.get("/api/conversations")
-def conversations():
-    rows = store.all_conversations()
-    out = []
-    for c in rows:
-        msgs = store.conversation_messages(c["id"])
-        user_msgs = [m for m in msgs if m["role"] == "user"]
-        out.append({"id": c["id"], "title": c["title"] or "(untitled)",
-                    "created_at": c["created_at"], "updated_at": c["updated_at"],
-                    "message_count": len(msgs),
-                    "preview": user_msgs[-1]["content"][:80] if user_msgs else ""})
-    return out
+def conversations(q: str = None):
+    return store.conversation_summaries(query=q)
 
 
 @app.post("/api/conversations/new")
@@ -483,20 +475,8 @@ def conversation_messages(cid: int):
 # --------------------------------------------------------------------------
 
 @app.get("/api/graph")
-def graph(active_only: bool = True):
-    ents = store.all_entities()
-    rels = store.all_relationships(active_only=active_only)
-    nodes = [{"id": e["id"], "label": e["name"], "type": e["type"],
-              "description": e["description"], "confidence": e["confidence"],
-              "pinned": e.get("pinned", 0), "important": e.get("important", 0),
-              "status": e.get("status", "active")} for e in ents]
-    edges = [{"id": f"e{r['id']}", "source": r["source_id"], "target": r["target_id"],
-              "relation": r["relation"], "confidence": r["confidence"],
-              "status": r.get("status", "active")} for r in rels]
-    return {"nodes": nodes, "edges": edges,
-            "type_colors": config.TYPE_COLORS,
-            "relation_types": config.RELATION_TYPES,
-            "entity_types": config.ENTITY_TYPES}
+def graph(active_only: bool = True, focus: str = "auto", depth: int = 2):
+    return graph_engine.graph_view(focus=focus, depth=depth, active_only=active_only)
 
 
 @app.get("/api/graph/filter")

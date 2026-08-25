@@ -487,6 +487,8 @@ button { font-family: var(--font); }
   padding: 12px; overflow-y: auto; min-height: 160px;
 }
 .conv-rail-head { font-size: 11px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
+#conv-search { width: 100%; margin-bottom: 10px; padding: 7px 10px; font-size: 12.5px; }
+.conv-list { display: flex; flex-direction: column; }
 .conv-item {
   padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 4px;
   border: 1px solid transparent; position: relative;
