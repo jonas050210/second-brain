@@ -125,3 +125,11 @@ def test_replace_import_restores_user_relationships():
         (uid, py["id"]),
     )
     assert rels, "learning relationship from User must survive replace import"
+
+
+def test_note_chunk_split_and_import():
+    chunks = export.split_note_chunks("I am learning Python.\n\n# Project\nNebula uses Ollama.")
+    assert len(chunks) >= 2
+    r = export.import_notes("I am learning Python.\n\nMy project Nebula uses Ollama.")
+    assert r["ok"] is True
+    assert store.find_entity_by_name("Python") is not None

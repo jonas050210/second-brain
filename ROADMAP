@@ -23,6 +23,9 @@ The database is the source of truth.
 - Backup restore with safety snapshot; unique backup folders
 - Entity browser, command palette, hash routing, conversation rename
 - Yes/no fact questions and list extraction (Python, Rust, and Go)
+- Natural command detection (no hijacking of "remember when")
+- Tell-me-about / path questions with source snippets
+- Note paragraph import; graph path + add-relationship
 
 ## Next (optional)
 

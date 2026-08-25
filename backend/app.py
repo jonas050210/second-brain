@@ -34,7 +34,7 @@ SECURITY_HEADERS = {
 from . import backup, commands, config, db, export, extract, ollama, search, store, summarize
 from . import graph as graph_engine
 
-app = FastAPI(title="Second Brain", version="2.1.0")
+app = FastAPI(title="Second Brain", version="2.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
@@ -136,6 +136,7 @@ def health():
         "embedding_model": effective_embedding_model(),
         "db_path": config.DB_PATH,
         "models_installed": ollama.list_models(),
+        "version": "2.2.0",
     }
 
 
@@ -608,6 +609,31 @@ def rel_delete(rid: int):
     return {"ok": True}
 
 
+class RelCreate(BaseModel):
+    source_id: int
+    target_id: int
+    relation: str
+    confidence: Optional[float] = 0.8
+
+
+@app.post("/api/relationships")
+def rel_create(body: RelCreate):
+    if not store.entity_row(body.source_id) or not store.entity_row(body.target_id):
+        raise HTTPException(404, "entity not found")
+    if body.source_id == body.target_id:
+        raise HTTPException(400, "cannot relate an entity to itself")
+    rel, swap = store.normalize_relation(body.relation)
+    sid, tid = body.source_id, body.target_id
+    if swap:
+        sid, tid = tid, sid
+    conf = max(0.0, min(1.0, float(body.confidence if body.confidence is not None else 0.8)))
+    rid = store.add_relationship(sid, tid, rel, confidence=conf)
+    srow, trow = store.entity_row(sid), store.entity_row(tid)
+    store.add_memory("relationship", f'{srow["name"]} → {rel} → {trow["name"]}',
+                     entity_ids=[sid, tid], confidence=conf)
+    return {"ok": True, "id": rid, "relation": rel, "source_id": sid, "target_id": tid}
+
+
 @app.get("/api/facts")
 def list_facts(active_only: bool = True, status: str = None, entity_id: int = None):
     """Readable facts (relationships) from the real graph. Never fabricated."""
@@ -789,6 +815,20 @@ def do_import(body: ImportIn):
     if len((body.data or "").encode("utf-8")) > MAX_IMPORT_BYTES:
         raise HTTPException(400, "import payload too large (8 MB max)")
     return export.import_from_json(body.data, mode=body.mode)
+
+
+class NotesIn(BaseModel):
+    text: str
+
+
+@app.post("/api/import/notes")
+def import_notes(body: NotesIn):
+    if len((body.text or "").encode("utf-8")) > MAX_IMPORT_BYTES:
+        raise HTTPException(400, "note payload too large (8 MB max)")
+    result = export.import_notes(body.text)
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error") or "import failed")
+    return result
 
 
 # --------------------------------------------------------------------------

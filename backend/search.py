@@ -212,20 +212,23 @@ def sources_for_facts(facts, limit=8):
     seen = set()
     sources = []
     for f in facts:
+        fact_src = _source_for_message(f.get("source_message_id"))
         for eid in f.get("entities", []):
             ent = store.entity_row(eid)
             if not ent:
                 continue
-            src = _source_for_message(ent.get("source_message_id"))
-            key = (ent["name"], ent["id"])
+            src = fact_src or _source_for_message(ent.get("source_message_id"))
+            key = (ent["name"], ent["id"], src["message_id"] if src else None)
             if key in seen:
                 continue
             seen.add(key)
+            snippet = (src["content"][:160] if src and src.get("content") else None)
             sources.append({
                 "entity_id": ent["id"], "name": ent["name"], "type": ent["type"],
                 "message_id": src["message_id"] if src else None,
                 "conversation_title": src["conversation_title"] if src else None,
                 "created_at": (src["created_at"] if src else None) or ent["created_at"],
+                "snippet": snippet,
             })
             if len(sources) >= limit:
                 return sources
@@ -312,6 +315,13 @@ def search(query_text, filters=None, multi_hop_depth=3):
         if f["text"] not in seen:
             seen.add(f["text"])
             dedup.append(f)
+
+    q_terms = set(re_tokenize(query_text)) - STOPWORDS
+    if q_terms:
+        def _fact_score(f):
+            blob = (f.get("text") or "").lower()
+            return sum(1 for t in q_terms if t in blob)
+        dedup.sort(key=_fact_score, reverse=True)
 
     return {"intent": intent, "entities": entities, "facts": dedup,
             "sources": sources_for_facts(dedup)}
@@ -427,11 +437,123 @@ def _direct_fact_answer(query_text):
     }
 
 
+_ABOUT = re.compile(
+    r"^(?:tell me about|what do (?:i|you) know about|who is)\s+(.+?)\??$",
+    re.I,
+)
+_PATH_Q = re.compile(
+    r"^(?:how (?:is|are)\s+(.+?)\s+related\s+to\s+(.+?)"
+    r"|what(?:'s| is) the (?:connection|relationship|link) between\s+(.+?)\s+and\s+(.+?))"
+    r"\??$",
+    re.I,
+)
+
+
+def _resolve_named_entity(name):
+    name = (name or "").strip().strip("?. ")
+    if not name:
+        return None
+    hit = store.find_entity_by_name(name)
+    if hit:
+        return hit
+    hits = keyword_search(name, limit=3)
+    if hits and hits[0][0] >= 5:
+        return hits[0][1]
+    return None
+
+
+def _about_answer(query_text):
+    m = _ABOUT.match((query_text or "").strip())
+    if not m:
+        return None
+    ent = _resolve_named_entity(m.group(1))
+    if not ent:
+        return {
+            "text": (
+                f"I don't have a memory indicating that. Nothing in your brain "
+                f"matches “{query_text}” yet."
+            ),
+            "status": "unknown",
+            "sources": [],
+        }
+    facts = graph_facts_for_entity(ent["id"])
+    sources = sources_for_facts(
+        facts or [{"text": ent["name"], "entities": [ent["id"]],
+                   "source_message_id": ent.get("source_message_id")}]
+    )
+    lines = [f'{ent["name"]} is stored as a {ent["type"]}.']
+    if ent.get("description"):
+        lines.append(ent["description"])
+    if facts:
+        lines.append("Known facts: " + "; ".join(f["text"] for f in facts[:8]) + ".")
+    else:
+        lines.append("No active relationships yet.")
+    if sources and sources[0].get("snippet"):
+        lines.append(f'Source: “{sources[0]["snippet"]}”')
+    return {"text": " ".join(lines) + " (from stored memory)",
+            "status": "known", "sources": sources}
+
+
+def _path_answer(query_text):
+    m = _PATH_Q.match((query_text or "").strip())
+    if not m:
+        return None
+    left = m.group(1) or m.group(3)
+    right = m.group(2) or m.group(4)
+    a = _resolve_named_entity(left)
+    b = _resolve_named_entity(right)
+    if not a or not b:
+        return {
+            "text": (
+                f"I don't have a memory indicating that. Nothing in your brain "
+                f"matches “{query_text}” yet."
+            ),
+            "status": "unknown",
+            "sources": [],
+        }
+    hops = graph.shortest_path(a["id"], b["id"])
+    if not hops:
+        return {
+            "text": f"I don't have a stored path between {a['name']} and {b['name']}.",
+            "status": "unknown",
+            "sources": [],
+        }
+    names = {a["id"]: a["name"], b["id"]: b["name"]}
+    bits = []
+    for hop in hops:
+        if "relation" not in hop:
+            continue
+        src = store.entity_row(hop["from"])
+        tgt = store.entity_row(hop["to"])
+        if src and tgt:
+            names[src["id"]] = src["name"]
+            names[tgt["id"]] = tgt["name"]
+            bits.append(f'{src["name"]} {hop["relation"]} {tgt["name"]}')
+    if not bits:
+        return {
+            "text": f"{a['name']} and {b['name']} are the same stored entity.",
+            "status": "known",
+            "sources": [],
+        }
+    facts = [{"text": t, "entities": [a["id"], b["id"]]} for t in bits]
+    return {
+        "text": " → ".join(bits) + ". (from stored memory)",
+        "status": "known",
+        "sources": sources_for_facts(facts),
+    }
+
+
 def answer(query_text, model=None, context=None, filters=None):
     model = model or config.DEFAULT_LLM_MODEL
     direct = _direct_fact_answer(query_text)
     if direct is not None:
         return direct
+    about = _about_answer(query_text)
+    if about is not None:
+        return about
+    path = _path_answer(query_text)
+    if path is not None:
+        return path
     res = search(query_text, filters=filters)
     return compose_answer(query_text, res, model, context)
 
@@ -550,5 +672,6 @@ def is_question(text):
     interrogatives = ("what", "who", "which", "when", "where", "how", "do i", "am i",
                       "have i", "did i", "list", "tell me", "show me",
                       "whats", "what's", "give me", "summarize", "what do you",
-                      "what are", "what is", "do you", "can you tell")
+                      "what are", "what is", "do you", "can you tell",
+                      "what do i know")
     return lower.startswith(interrogatives)

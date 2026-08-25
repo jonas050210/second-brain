@@ -173,6 +173,35 @@ def test_security_headers_present(client):
     assert "default-src 'self'" in (r.headers.get("content-security-policy") or "")
 
 
+def test_create_relationship_endpoint(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    client.post("/api/chat", json={"content": "My new project Game Engine uses Bevy"})
+    ents = {e["name"]: e["id"] for e in client.get("/api/entities").json()}
+    r = client.post("/api/relationships", json={
+        "source_id": ents["Game Engine"], "target_id": ents["Rust"], "relation": "uses",
+    })
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    facts = client.get("/api/facts").json()
+    assert any(f["source"] == "Game Engine" and f["target"] == "Rust" for f in facts)
+
+
+def test_import_notes_extracts_paragraphs(client):
+    r = client.post("/api/import/notes", json={
+        "text": "I am learning Python.\n\nMy project Nebula uses Ollama.",
+    })
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    assert r.json()["chunks"] >= 1
+    names = {e["name"] for e in client.get("/api/entities").json()}
+    assert "Python" in names or "Nebula" in names
+
+
+def test_health_reports_version(client):
+    h = client.get("/api/health").json()
+    assert h.get("version")
+
+
 def test_import_rejects_oversized_payload(client):
     huge = "x" * (8 * 1024 * 1024 + 50)
     r = client.post("/api/import", json={"data": huge, "mode": "merge"})

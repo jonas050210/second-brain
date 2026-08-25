@@ -7,6 +7,10 @@ def test_remember_command_recognized():
     assert commands.is_command("Forget that I am learning Rust.")
     assert commands.is_command("Pin Nebula")
     assert not commands.is_command("I am learning Python.")
+    assert not commands.is_command("Remember when I started Python")
+    assert not commands.is_command("Delete this later")
+    assert not commands.is_command("Change my mind about Rust")
+    assert commands.is_command("Can you forget Rust")
 
 
 def test_forget_supersedes_learning():

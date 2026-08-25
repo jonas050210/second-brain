@@ -38,6 +38,11 @@ Rules:
 - If the user says they STOPPED doing something ("I stopped learning Rust",
   "I no longer use X", "I switched from X to Y"), put the OUTDATED fact in a
   "stops" list, NOT in "relationships".
+- Lists are multiple facts: "I'm learning Python, Rust, and Go" creates three
+  learning relationships.
+- Never invent people, employers, or projects the user did not mention.
+- Entity names must be short canonical labels, never clauses
+  ("instead of Python", "a bit of Rust").
 
 Examples:
 "I am learning Python" ->
@@ -97,6 +102,30 @@ def confidence_threshold():
     return db.get_setting_float("confidence_threshold", config.DEFAULT_CONFIDENCE_THRESHOLD)
 
 
+_JUNK_NAMES = {
+    "instead", "instead of", "rather", "rather than", "a bit", "a bit of",
+    "something", "stuff", "things", "thing", "it", "this", "that",
+    "here", "there", "now", "today", "tomorrow", "and", "or", "the", "a", "an",
+}
+
+
+def is_junk_entity_name(name):
+    """True for empty, stopword, or clause-like names that should never persist."""
+    n = store.normalize_name(name)
+    if not n or len(n) < 2:
+        return True
+    if n in _JUNK_NAMES:
+        return True
+    if n.startswith("instead of") or n.startswith("rather than") or n.startswith("a bit of"):
+        return True
+    words = n.split()
+    if words and words[0] in ("instead", "rather", "also"):
+        return True
+    if len(words) > 6:
+        return True
+    return False
+
+
 def extract(text, model=None, source_message_id=None, demo=False):
     """Run the full extraction pipeline. Returns a dict summary of updates."""
     if model is None:
@@ -135,13 +164,13 @@ def extract(text, model=None, source_message_id=None, demo=False):
     id_by_name = {}
     for ent in entities:
         try:
-            name = (ent.get("name") or "").strip()
+            name = fallback.canonical_name(ent.get("name") or "")
             etype = ent.get("type") or "concept"
             desc = ent.get("description") or ""
             conf = float(ent.get("confidence", 0.8))
         except (AttributeError, ValueError):
             continue
-        if not name or conf < threshold:
+        if not name or is_junk_entity_name(name) or conf < threshold:
             continue
         if normalize_me(name):
             eid = store.ensure_user_entity()
@@ -204,10 +233,10 @@ def extract(text, model=None, source_message_id=None, demo=False):
                     )
                     result["superseded"].append(old["name"])
 
-        existed = store.relationship_exists(sid, tid, relation)
+        was_active = store.relationship_active(sid, tid, relation)
         store.add_relationship(sid, tid, relation, confidence=conf, source_message_id=source_message_id)
         srow, trow = store.entity_row(sid), store.entity_row(tid)
-        if not existed:
+        if not was_active:
             label = f'{srow["name"]} → {relation} → {trow["name"]}'
             store.add_memory("relationship", label, entity_ids=[sid, tid],
                              message_id=source_message_id, confidence=conf)
@@ -219,7 +248,7 @@ def extract(text, model=None, source_message_id=None, demo=False):
                  "source_id": sid, "target_id": tid,
                  "confidence": round(conf, 3)})
         result["relationships"].append(
-            {"source": sid, "target": tid, "relation": relation, "new": not existed}
+            {"source": sid, "target": tid, "relation": relation, "new": not was_active}
         )
 
     # ---- Stops / supersession ------------------------------------------
@@ -258,6 +287,9 @@ def extract(text, model=None, source_message_id=None, demo=False):
 def _resolve_entity(name, conf, id_by_name, source_message_id=None, demo_meta=None):
     if normalize_me(name):
         return store.ensure_user_entity()
+    name = fallback.canonical_name(name)
+    if not name or is_junk_entity_name(name):
+        return None
     eid = id_by_name.get(name.lower())
     if eid is not None:
         return eid

@@ -192,6 +192,7 @@ edit, delete, merge. No fabricated nodes.
 - Secrets are not exported
 - Reset requires confirmation
 - Restore a named local backup (creates a safety snapshot first)
+- Paste notes (plain text / markdown paragraphs) to extract memories
 
 ---
 

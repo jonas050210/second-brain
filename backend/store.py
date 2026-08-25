@@ -325,6 +325,14 @@ def relationship_exists(source_id, target_id, relation):
     ) is not None
 
 
+def relationship_active(source_id, target_id, relation):
+    return db.query_one(
+        "SELECT id FROM relationships WHERE source_id=? AND target_id=? "
+        "AND relation=? AND status='active'",
+        (source_id, target_id, relation),
+    ) is not None
+
+
 def supersede_relationship(source_id, target_id, relation):
     """Mark a matching active relationship as superseded. Returns count changed."""
     rows = db.query(

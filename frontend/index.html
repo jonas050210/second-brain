@@ -175,6 +175,7 @@
             <button class="btn-ghost" id="graph-zoom-out" title="Zoom out">−</button>
             <button class="btn-ghost" id="graph-fit" title="Fit">Fit</button>
             <button class="btn-ghost" id="graph-expand" title="Expand neighborhood">Expand</button>
+            <button class="btn-ghost" id="graph-path" title="Path between last two nodes">Path</button>
           </div>
           <div id="cy"></div>
         </div>
@@ -382,6 +383,11 @@
               <button class="btn-danger" id="import-replace">Replace database</button>
             </div>
             <p class="hint" id="import-status"></p>
+            <label class="field">
+              <span>Import notes <span class="muted">(plain text / markdown paragraphs)</span></span>
+              <textarea class="input" id="import-notes" rows="3" placeholder="Paste notes. Each paragraph is extracted into memory."></textarea>
+            </label>
+            <button class="btn-primary" id="import-notes-btn">Import notes</button>
           </div>
         </div>
 

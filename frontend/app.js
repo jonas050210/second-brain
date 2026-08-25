@@ -420,8 +420,13 @@ async function loadConversations() {
       </div>`).join("");
     list.querySelectorAll(".conv-item").forEach((el) =>
       el.addEventListener("click", (ev) => {
-        if (ev.target.closest(".conv-del")) return;
+        if (ev.target.closest(".conv-del") || ev.target.closest(".conv-title")) return;
         openConversation(Number(el.dataset.id));
+      }));
+    list.querySelectorAll(".conv-title").forEach((el) =>
+      el.addEventListener("dblclick", (ev) => {
+        ev.stopPropagation();
+        renameConversation(Number(el.dataset.id), el);
       }));
     list.querySelectorAll(".conv-del").forEach((btn) =>
       btn.addEventListener("click", async (ev) => {
@@ -552,7 +557,16 @@ function initGraph() {
     wheelSensitivity: 0.25,
   });
 
-  cy.on("tap", "node", (e) => openEntity(e.target.id()));
+  cy.on("tap", "node", (e) => {
+    const id = String(e.target.id());
+    lastFocusedId = id;
+    pathEnds = pathEnds.filter((x) => x !== id).concat([id]).slice(-2);
+    openEntity(id);
+  });
+  cy.on("dbltap", "node", (e) => {
+    lastFocusedId = String(e.target.id());
+    expandSelectedNeighborhood();
+  });
   cy.on("tap", (e) => { if (e.target === cy) closeEntity(); });
 
   cy.on("mouseover", "node", (e) => {
@@ -684,8 +698,27 @@ if ($("#graph-zoom-in")) $("#graph-zoom-in").addEventListener("click", () => { i
 if ($("#graph-zoom-out")) $("#graph-zoom-out").addEventListener("click", () => { if (cy) cy.zoom(cy.zoom() / 1.2); });
 if ($("#graph-fit")) $("#graph-fit").addEventListener("click", () => { if (cy) cy.fit(undefined, 40); });
 if ($("#graph-expand")) $("#graph-expand").addEventListener("click", expandSelectedNeighborhood);
+if ($("#graph-path")) $("#graph-path").addEventListener("click", showGraphPath);
 
 let lastFocusedId = null;
+let pathEnds = [];
+
+async function showGraphPath() {
+  if (pathEnds.length < 2) { toast("Click two nodes, then Path"); return; }
+  const [a, b] = pathEnds.slice(-2);
+  const g = await api(`/graph/path?source_id=${a}&target_id=${b}`);
+  if (!g.found || !g.path) { toast("No stored path between those nodes"); return; }
+  cy.elements().addClass("dim").removeClass("highlight");
+  const hops = g.path.filter((h) => h.from && h.to);
+  hops.forEach((h) => {
+    const src = cy.getElementById(String(h.from));
+    const tgt = cy.getElementById(String(h.to));
+    src.removeClass("dim").addClass("highlight");
+    tgt.removeClass("dim").addClass("highlight");
+    src.edgesWith(tgt).removeClass("dim").addClass("highlight");
+  });
+  toast(hops.map((h) => h.relation).join(" → ") || "Path found");
+}
 
 async function expandSelectedNeighborhood() {
   if (!cy) return;
@@ -810,6 +843,7 @@ async function doSearch() {
         <span class="remembered-chip" data-id="${s.entity_id}">
           <span style="color:${typeColors[s.type] || "#fff"}">●</span> ${esc(s.name)}
           ${s.conversation_title ? ` · <span class="conf">${esc(s.conversation_title)}</span>` : ""}
+          ${s.snippet ? ` · <span class="conf">${esc(s.snippet)}</span>` : ""}
         </span>`).join("")}
     </div>`;
     srcPanel.querySelectorAll(".remembered-chip").forEach((chip) =>
@@ -919,6 +953,27 @@ async function loadEntity(id) {
     <div class="entity-sec">
       <h3>Relationships (${d.related.length})</h3>
       ${related || `<p class="muted">None yet.</p>`}
+      <div class="form" style="margin-top:10px">
+        <label class="field"><span>Add relationship</span>
+          <select class="input" id="add-rel-type">
+            <option value="related_to">related_to</option>
+            <option value="uses">uses</option>
+            <option value="learning">learning</option>
+            <option value="works_on">works_on</option>
+            <option value="knows">knows</option>
+            <option value="likes">likes</option>
+            <option value="created">created</option>
+            <option value="interested_in">interested_in</option>
+            <option value="wants">wants</option>
+            <option value="prefers">prefers</option>
+            <option value="works_at">works_at</option>
+            <option value="lives_in">lives_in</option>
+            <option value="member_of">member_of</option>
+          </select>
+        </label>
+        <input class="input" id="add-rel-target" placeholder="Target entity name" />
+        <button class="btn-ghost" id="add-rel-btn">Add</button>
+      </div>
     </div>
 
     <div class="entity-sec">
@@ -1022,6 +1077,20 @@ async function loadEntity(id) {
     if (n && n.length) n.select();
     cy.animate({ fit: { eles: n.neighborhood().add(n), padding: 80 }, duration: 400 });
     closeEntity();
+  });
+  const addRelBtn = $("#add-rel-btn");
+  if (addRelBtn) addRelBtn.addEventListener("click", async () => {
+    const name = ($("#add-rel-target").value || "").trim();
+    const rel = $("#add-rel-type").value;
+    if (!name) return;
+    const ents = await api("/entities?q=" + encodeURIComponent(name));
+    const hit = ents.find((x) => x.name.toLowerCase() === name.toLowerCase()) || ents[0];
+    if (!hit) { toast("No matching entity"); return; }
+    await api("/relationships", { method: "POST", body: JSON.stringify({
+      source_id: Number(id), target_id: hit.id, relation: rel,
+    })});
+    toast("Relationship added");
+    loadEntity(id); buildGraph(); loadDashboard();
   });
   $("#act-merge").addEventListener("click", () => openMerge(id));
   $("#act-delete").addEventListener("click", async () => {
@@ -1196,6 +1265,20 @@ $("#import-replace").addEventListener("click", async () => {
     if (r.ok) { loadDashboard(); buildGraph(); loadMemory(); }
   } catch (e) { $("#import-status").textContent = "Error: " + e.message; }
 });
+
+if ($("#import-notes-btn")) {
+  $("#import-notes-btn").addEventListener("click", async () => {
+    const text = ($("#import-notes") && $("#import-notes").value || "").trim();
+    if (!text) return;
+    try {
+      const r = await api("/import/notes", { method: "POST", body: JSON.stringify({ text }) });
+      $("#import-status").textContent = r.ok
+        ? `Imported ${r.chunks} note(s), ${r.remembered} memories.`
+        : "Error: " + (r.error || "failed");
+      if (r.ok) { loadDashboard(); buildGraph(); loadMemory(); loadConversations(); }
+    } catch (e) { $("#import-status").textContent = "Error: " + e.message; }
+  });
+}
 
 $("#backup-now").addEventListener("click", async () => {
   const r = await api("/backup", { method: "POST" });

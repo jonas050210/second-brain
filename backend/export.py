@@ -7,6 +7,7 @@ touching the database, and supports two modes:
   - replace : wipe the database first (with explicit confirmation)
 """
 import json
+import re
 from datetime import datetime
 
 from . import config, db, store
@@ -319,3 +320,47 @@ def import_from_json(text, mode="merge"):
     if mode == "replace":
         return import_replace(data)
     return import_merge(data)
+
+
+def split_note_chunks(text, limit=50):
+    """Split pasted notes into extractable paragraphs. Never invents content."""
+    raw = (text or "").replace("\r\n", "\n").strip()
+    if not raw:
+        return []
+    parts = re.split(r"\n\s*\n+|^(?=#{1,3}\s)", raw, flags=re.M)
+    chunks = []
+    for part in parts:
+        piece = " ".join(line.strip() for line in part.splitlines() if line.strip())
+        piece = piece.lstrip("# ").strip()
+        if len(piece) >= 8:
+            chunks.append(piece[:2000])
+        if len(chunks) >= limit:
+            break
+    if not chunks and len(raw) >= 8:
+        chunks = [raw[:2000]]
+    return chunks
+
+
+def import_notes(text):
+    """Run the existing extractor on each note paragraph. Does not wipe data."""
+    from . import extract, fallback
+    chunks = split_note_chunks(text)
+    if not chunks:
+        return {"ok": False, "error": "no usable note text"}
+    cid = store.new_conversation()
+    store.touch_conversation(cid, title="Imported notes")
+    remembered, chunks_used = [], 0
+    for chunk in chunks:
+        if fallback.is_trivial(chunk):
+            continue
+        mid = store.add_message("user", chunk, conversation_id=cid)
+        result = extract.extract(chunk, source_message_id=mid)
+        remembered.extend(result.get("remembered") or [])
+        chunks_used += 1
+    return {
+        "ok": True,
+        "mode": "notes",
+        "chunks": chunks_used,
+        "conversation_id": cid,
+        "remembered": len(remembered),
+    }

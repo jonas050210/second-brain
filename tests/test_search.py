@@ -82,7 +82,23 @@ def test_graph_facts_for_entity():
 def test_is_question():
     assert search.is_question("What projects am I working on?")
     assert search.is_question("Do I use Java?")
+    assert search.is_question("Tell me about Nebula")
     assert not search.is_question("I am learning Python")
+
+
+def test_tell_me_about_entity():
+    extract.extract("My new project Nebula uses Next.js")
+    a = search.answer("Tell me about Nebula")
+    assert a["status"] == "known"
+    assert "Nebula" in a["text"]
+    assert a.get("sources") is not None
+
+
+def test_path_question():
+    extract.extract("My new project Game Engine uses Bevy")
+    a = search.answer("How is Game Engine related to Bevy?")
+    assert a["status"] == "known"
+    assert "Bevy" in a["text"]
 
 
 def test_yes_no_unknown_when_relation_missing():

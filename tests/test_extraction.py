@@ -133,6 +133,26 @@ def test_multiword_concepts_not_trimmed():
     assert types.get("Game Engine") == "project"
 
 
+def test_junk_clause_is_not_an_entity():
+    r = _run("I prefer Rust instead of Python")
+    names = {e["name"] for e in store.all_entities()}
+    assert "Instead Of Python" not in names
+    assert "Rust Instead Of Python" not in names
+    assert extract.is_junk_entity_name("instead of Python")
+    assert extract.is_junk_entity_name("a")
+    assert not extract.is_junk_entity_name("Python")
+
+
+def test_relearn_after_stop_is_remembered():
+    _run("I am learning Rust")
+    _run("I stopped learning Rust")
+    r = _run("I am learning Rust")
+    assert any(x["relation"] == "learning" for x in r["relationships"])
+    rust = store.find_entity_by_name("Rust")
+    uid = store.ensure_user_entity()
+    assert store.relationship_active(uid, rust["id"], "learning")
+
+
 def test_list_learning_extracts_each_item():
     r = _run("I am learning Python, Rust, and Go")
     names = {e["name"] for e in r["entities"]}

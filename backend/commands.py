@@ -16,25 +16,40 @@ import re
 
 from . import config, db, store
 
-# Leading phrases that mark an explicit memory-control command.
-COMMAND_LEADS = [
-    "remember that", "remember", "please remember",
-    "forget that", "forget", "please forget", "delete the memory",
-    "remove the memory", "remove", "delete", "unremember",
-    "pin ", "unpin ", "mark ", "unmark ",
-    "merge ", "change ", "update ", "rename ", "set confidence",
-    "make this important", "make ", "stop remembering",
-    "important", "unimportant",
-]
-
-
 def is_command(text):
-    t = text.strip().lower()
-    return any(t.startswith(lead) for lead in COMMAND_LEADS) or \
-        t.startswith(("remember ", "forget ", "remove ", "delete ", "pin ",
-                      "unpin ", "mark ", "unmark ", "merge ", "change ",
-                      "update ", "rename ", "please remember", "please forget",
-                      "stop remembering", "important ", "unimportant "))
+    """True only for explicit memory-control utterances, not stories."""
+    t = (text or "").strip().lower().rstrip(".,!?;: ")
+    if not t:
+        return False
+    if re.match(r"^(?:please\s+)?remember(?:\s+that|\s+i)\b", t):
+        return True
+    if re.match(r"^(?:please\s+)?(?:forget|unremember)(?:\s+that|\s+i)?\b", t):
+        return True
+    if re.match(r"^(?:can you|could you)\s+forget\b", t):
+        return True
+    if t.startswith("stop remembering"):
+        return True
+    if re.match(r"^(?:pin|unpin)\s+\S", t):
+        return True
+    if re.match(r"^(?:important|unimportant)(?:\s|$)", t):
+        return True
+    if re.match(r"^(?:mark|unmark|make)\s+.+\s+(?:as\s+)?(?:un)?important", t):
+        return True
+    if t == "make this important":
+        return True
+    if re.match(r"^merge\s+.+\s+(?:with|into)\s+\S", t):
+        return True
+    if re.match(r"^(?:change|update|rename)\s+.+\s+to\s+\S", t):
+        return True
+    if t.startswith("set confidence"):
+        return True
+    if re.match(r"^(?:delete|remove)\s+(?:the\s+)?memory\b", t):
+        return True
+    if re.match(r"^(?:delete|remove)\s+\S", t):
+        if re.search(r"\b(later|tomorrow|soon|tonight)\b", t):
+            return False
+        return True
+    return False
 
 
 def _find_entity(name):
@@ -106,6 +121,10 @@ def handle_command(text):
 
     # ---- stop remembering X ---------------------------------------------
     m = re.match(r"stop remembering\s+(.+)$", tl, re.I)
+    if m:
+        return forget_target(m.group(1).strip())
+
+    m = re.match(r"(?:can you|could you|please)\s+forget\s+(.+)$", tl, re.I)
     if m:
         return forget_target(m.group(1).strip())
 
