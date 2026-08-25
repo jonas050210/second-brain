@@ -32,6 +32,8 @@ The database is the source of truth.
 - Graph layouts (force / by type / from User) and relationship-type editing
 - Direct NL answers for live / work / prefer / use-of questions
 - Full first-party source archive in projekt.md
+- Grounded Ollama answers (invented tech/entities dropped)
+- Auto-backup after memory writes, not on the health poll
 
 ## Next (optional)
 

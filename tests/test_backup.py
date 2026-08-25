@@ -62,6 +62,19 @@ def test_restore_roundtrip_preserves_memories():
     assert store.find_entity_by_name("Python") is not None
 
 
+def test_health_does_not_create_backup():
+    from fastapi.testclient import TestClient
+    from backend import app as app_module
+    extract.extract("I am learning Python.")
+    before = backup.backup_status()["count"]
+    client = TestClient(app_module.app)
+    h = client.get("/api/health").json()
+    assert h["ok"] is True
+    assert "auto_backup" in h
+    assert h["auto_backup"].get("count") == before
+    assert backup.backup_status()["count"] == before
+
+
 def test_maybe_auto_backup_skips_empty_and_fresh():
     r = backup.maybe_auto_backup()
     assert r.get("skipped") is True

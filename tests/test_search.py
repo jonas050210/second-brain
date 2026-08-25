@@ -152,6 +152,14 @@ def test_ambiguous_unknown_stays_unknown():
         assert "don't have" in a["text"].lower() or "nothing" in a["text"].lower()
 
 
+def test_compose_drops_invented_tech():
+    extract.extract("I am learning Python")
+    res = search.search("What am I learning?")
+    fake = "You're learning Python and also Java at Google."
+    assert search.reply_is_grounded("You're learning Python.", res, "What am I learning?")
+    assert not search.reply_is_grounded(fake, res, "What am I learning?")
+
+
 def test_works_at_intent():
     extract.extract("I work at Acme")
     assert search.detect_intent("Where do I work at?") == "organization"

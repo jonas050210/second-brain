@@ -200,7 +200,7 @@ def test_import_notes_extracts_paragraphs(client):
 
 def test_health_reports_version(client):
     h = client.get("/api/health").json()
-    assert h.get("version") == "2.3.0"
+    assert h.get("version") == "2.3.1"
     assert h.get("db_ok") is True
     assert "auto_backup" in h
 

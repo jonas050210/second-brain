@@ -34,7 +34,7 @@ SECURITY_HEADERS = {
 from . import backup, commands, config, db, export, extract, ollama, search, store, summarize
 from . import graph as graph_engine
 
-app = FastAPI(title="Second Brain", version="2.3.0")
+app = FastAPI(title="Second Brain", version="2.3.1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
@@ -166,13 +166,14 @@ def health():
         "embedding_model": effective_embedding_model(),
         "db_path": config.DB_PATH,
         "models_installed": ollama.list_models(),
-        "version": "2.3.0",
+        "version": "2.3.1",
         "db_ok": db.integrity_ok(),
-        "auto_backup": _safe_auto_backup(),
+        "auto_backup": backup.auto_backup_status(),
     }
 
 
 def _safe_auto_backup():
+    """Create a backup only after a memory write. Never called from health."""
     try:
         return backup.maybe_auto_backup()
     except Exception as exc:
@@ -372,6 +373,10 @@ def finalize_turn(turn, reply):
         out["is_answer"] = True
         out["status"] = turn.get("status") or ""
         out["sources"] = turn.get("sources") or []
+    if turn["kind"] in ("extract", "command") and (
+        out.get("remembered") or out.get("updates") or out.get("is_command")
+    ):
+        _safe_auto_backup()
     return out
 
 
@@ -944,7 +949,10 @@ def do_import(body: ImportIn):
         raise HTTPException(400, "replace requires confirm=true")
     if len((body.data or "").encode("utf-8")) > MAX_IMPORT_BYTES:
         raise HTTPException(400, "import payload too large (8 MB max)")
-    return export.import_from_json(body.data, mode=body.mode)
+    result = export.import_from_json(body.data, mode=body.mode)
+    if result.get("ok"):
+        _safe_auto_backup()
+    return result
 
 
 class NotesIn(BaseModel):
@@ -958,6 +966,7 @@ def import_notes(body: NotesIn):
     result = export.import_notes(body.text)
     if not result.get("ok"):
         raise HTTPException(400, result.get("error") or "import failed")
+    _safe_auto_backup()
     return result
 
 

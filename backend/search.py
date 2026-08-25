@@ -12,7 +12,7 @@ import re
 
 import numpy as np
 
-from . import config, db, graph, ollama, store
+from . import config, db, fallback, graph, ollama, store
 
 INTENT_KEYWORDS = {
     "project": ["project", "projects", "app", "apps", "building", "startup", "working on", "working"],
@@ -717,6 +717,44 @@ def _status_of(res, query_text=""):
     return "uncertain"
 
 
+def _knowledge_names(res, query_text=""):
+    """Surface forms the composer is allowed to mention."""
+    names = {"user", "i", "me"}
+    for e in res.get("entities") or []:
+        n = store.normalize_name(e.get("name"))
+        if n:
+            names.add(n)
+    for f in res.get("facts") or []:
+        for part in re.findall(r"[A-Za-z0-9][A-Za-z0-9+.#\-]{1,40}", f.get("text") or ""):
+            n = store.normalize_name(part)
+            if n:
+                names.add(n)
+    for t in query_terms(query_text):
+        names.add(t)
+    return names
+
+
+def reply_is_grounded(text, res, query_text=""):
+    """False if the reply names a stored entity or known tech absent from knowledge."""
+    blob = (text or "").lower()
+    if not blob.strip():
+        return False
+    allowed = _knowledge_names(res, query_text)
+    for e in store.all_entities():
+        n = e.get("norm_name") or ""
+        if not n or n in allowed or len(n) < 3:
+            continue
+        if re.search(r"(?<![a-z0-9])" + re.escape(n) + r"(?![a-z0-9])", blob):
+            return False
+    for key, display in fallback.TECH.items():
+        dn = display.lower()
+        if dn in allowed or key in allowed:
+            continue
+        if re.search(r"(?<![a-z0-9])" + re.escape(key) + r"(?![a-z0-9])", blob):
+            return False
+    return True
+
+
 def _composer_messages(query_text, res, context=None):
     entities = res["entities"]
     facts = res["facts"]
@@ -780,8 +818,9 @@ def compose_answer_stream(query_text, res, model, context=None):
             ):
                 if piece:
                     acc.append(piece)
-                    yield piece
-            if "".join(acc).strip():
+            text = "".join(acc).strip()
+            if text and reply_is_grounded(text, res, query_text):
+                yield text
                 return
         except Exception:
             pass

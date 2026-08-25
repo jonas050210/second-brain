@@ -153,6 +153,17 @@ def auto_backup_hours():
     return db.get_setting_float("auto_backup_hours", config.DEFAULT_AUTO_BACKUP_HOURS)
 
 
+def auto_backup_status():
+    """Read-only status. Never writes a backup."""
+    backups = list_backups()
+    return {
+        "hours": auto_backup_hours(),
+        "last_backup_at": db.get_setting("last_backup_at"),
+        "count": len(backups),
+        "enabled": (auto_backup_hours() or 0) > 0,
+    }
+
+
 def maybe_auto_backup():
     """Create a local backup if the last one is older than the configured interval.
 

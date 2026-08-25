@@ -147,7 +147,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 ```
 
 Runtime Settings: models, Ollama URL (http/https only), confidence threshold,
-duplicate-merge threshold, auto-memory, theme.
+duplicate-merge threshold, auto-memory, automatic local backup interval, theme.
 
 ---
 
