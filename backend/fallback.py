@@ -281,7 +281,21 @@ def extract_with_rules(text):
         add_rel(s, tg, "works_on")
 
     # ---- 6. preferences / location / organization ------------------------
-    for m in re.finditer(r"\b(?:i|we)\s+(?:prefer|prefers|really like|favorite language is|favourite language is)\s+([a-z0-9 .+#/'-]{1,24}?)(?=\s+(?:and|or|over|for|to|with|,)|\.|$)", t):
+    for m in re.finditer(
+        r"\b(?:i|we)\s+prefer(?:s)?\s+([a-z0-9 .+#/'-]{1,24}?)\s+"
+        r"(?:instead of|rather than|over)\s+([a-z0-9 .+#/'-]{1,24}?)"
+        r"(?=[,.;]|\s+(?:and|or|for|to|because|with)|\.|$)",
+        t,
+    ):
+        new, old = clean_phrase(m.group(1)), clean_phrase(m.group(2))
+        new_key, old_key = canonical_name(new).lower(), canonical_name(old).lower()
+        if new_key and old_key:
+            ne = add(new, "technology" if new_key in TECH else "preference")
+            add(old, "technology" if old_key in TECH else "preference")
+            add_rel("User", ne, "prefers", conf=0.9)
+            add_stop("User", canonical_name(old), "prefers")
+
+    for m in re.finditer(r"\b(?:i|we)\s+(?:prefer|prefers|really like|favorite language is|favourite language is)\s+([a-z0-9 .+#/'-]{1,24}?)(?=\s+(?:and|or|over|instead|rather|for|to|with|,)|\.|$)", t):
         item = clean_phrase(m.group(1))
         key = canonical_name(item).lower()
         if key and key not in ("i", "me"):

@@ -281,7 +281,8 @@ def toggle_entity_flag(eid, flag):
 
 
 def set_confidence(eid, confidence):
-    db.execute("UPDATE entities SET confidence=? WHERE id=?", (confidence, eid))
+    db.execute("UPDATE entities SET confidence=?, updated_at=? WHERE id=?",
+               (confidence, db.utcnow(), eid))
 
 
 def entity_row(eid):

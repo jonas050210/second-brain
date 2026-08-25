@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Primary launcher for Second Brain.
 
-Detects the environment, installs only genuinely missing runtime
-dependencies, then starts the local web app.
+Paths are resolved from this file, so the current working directory does not
+matter. After a successful first run this script must NOT reinstall packages.
 
 Usage:
     python start.py
-    python start.py --check     # verify environment, do not start
-    python start.py --setup     # install / verify only
-
-After a successful setup this script must NOT reinstall packages.
+    python start.py --check
+    python start.py --check-only
+    python start.py --no-install
+    python start.py --dev
+    python start.py --open
+    python start.py --host 0.0.0.0 --port 8000
 """
 from __future__ import annotations
 
@@ -18,12 +20,13 @@ import importlib
 import os
 import subprocess
 import sys
+import threading
+import webbrowser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 VENV_DIR = ROOT / ".venv"
 
-# import-name -> pip extra specifier
 RUNTIME_DEPS = (
     ("fastapi", "fastapi>=0.110"),
     ("uvicorn", "uvicorn[standard]>=0.29"),
@@ -50,9 +53,8 @@ def running_in_project_venv() -> bool:
         base = Path(getattr(sys, "base_prefix", sys.prefix)).resolve()
         if prefix == VENV_DIR.resolve():
             return True
-        # Don't follow the python symlink (venv/bin/python -> system python).
         raw = Path(sys.executable)
-        if VENV_DIR.resolve() in raw.resolve().parents or str(VENV_DIR) in str(raw):
+        if str(VENV_DIR) in str(raw):
             return True
         return prefix != base and str(VENV_DIR.resolve()) in str(prefix)
     except OSError:
@@ -88,13 +90,12 @@ def install_packages(packages: list[str]) -> None:
         raise SystemExit(
             "Failed to install Python packages.\n"
             f"Command: {' '.join(cmd)}\n"
-            "On Windows, try:  python -m pip install -r requirements.txt\n"
+            "On Windows:  python -m pip install -r requirements.txt\n"
             f"pip exit code: {exc.returncode}"
         ) from exc
 
 
 def ensure_venv() -> None:
-    """Create .venv once if the current interpreter cannot import runtime deps."""
     if os.environ.get("SECOND_BRAIN_NO_VENV") == "1":
         return
     if running_in_project_venv():
@@ -106,8 +107,7 @@ def ensure_venv() -> None:
         except subprocess.CalledProcessError as exc:
             raise SystemExit(
                 "Could not create a virtual environment.\n"
-                "Install the Python venv module (Windows: re-run the official installer "
-                "with 'pip' and 'venv' enabled) and retry."
+                "On Windows, re-run the official Python installer with pip and venv enabled."
             ) from exc
 
 
@@ -129,24 +129,24 @@ def create_dirs() -> None:
 def verify_imports() -> None:
     missing = missing_runtime()
     if missing:
-        raise SystemExit(
-            "Runtime packages are still missing after install: "
-            + ", ".join(missing)
-        )
+        raise SystemExit("Runtime packages are still missing: " + ", ".join(missing))
     frontend = ROOT / "frontend" / "index.html"
     if not frontend.is_file():
         raise SystemExit(f"Frontend is missing: {frontend}")
 
 
-def setup_only() -> list[str]:
-    """Install missing runtime deps and prepare data dirs. Returns installed specs."""
+def setup_only(allow_install: bool = True) -> list[str]:
     check_python()
-    ensure_venv()
-    # If we just created a venv, the *current* interpreter may still lack
-    # packages. Caller should re-exec; we still try to install into current.
+    if allow_install:
+        ensure_venv()
     missing = missing_runtime()
     installed: list[str] = []
     if missing:
+        if not allow_install:
+            raise SystemExit(
+                "Missing runtime packages and --no-install was set: "
+                + ", ".join(missing)
+            )
         install_packages(missing)
         installed = missing
     create_dirs()
@@ -154,7 +154,7 @@ def setup_only() -> list[str]:
 
 
 def detect_environment() -> dict:
-    info = {
+    return {
         "python": sys.version.split()[0],
         "executable": sys.executable,
         "platform": sys.platform,
@@ -163,11 +163,9 @@ def detect_environment() -> dict:
         "venv": running_in_project_venv(),
         "missing": missing_runtime(),
     }
-    return info
 
 
 def probe_ollama() -> dict:
-    """Non-fatal Ollama diagnostic. Never downloads models."""
     url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     try:
         import requests
@@ -182,48 +180,54 @@ def probe_ollama() -> dict:
 
 def print_env(info: dict) -> None:
     print("Second Brain — environment")
-    print(f"  Python     : {info['python']} ({info['executable']})")
-    print(f"  Platform   : {info['platform']}")
-    print(f"  Project    : {info['project']}")
+    print(f"  Python      : {info['python']} ({info['executable']})")
+    print(f"  Platform    : {info['platform']}")
+    print(f"  Project     : {info['project']}")
     print(f"  Project venv: {'yes' if info['venv'] else 'no'}")
-    print(f"  Missing    : {', '.join(info['missing']) if info['missing'] else 'none'}")
+    print(f"  Missing     : {', '.join(info['missing']) if info['missing'] else 'none'}")
     oll = probe_ollama()
     if oll.get("available"):
         models = ", ".join(oll.get("models") or []) or "none listed"
-        print(f"  Ollama     : online at {oll['url']}")
-        print(f"  Models     : {models}")
+        print(f"  Ollama      : online at {oll['url']}")
+        print(f"  Models      : {models}")
     else:
-        print(f"  Ollama     : offline ({oll.get('url')})")
+        print(f"  Ollama      : offline ({oll.get('url')})")
         if oll.get("error"):
-            print(f"               {oll['error']}")
-        print("               Fallback extractor will be used. Optional:")
-        print("               ollama pull qwen3:0.6b && ollama pull nomic-embed-text")
+            print(f"                {oll['error']}")
+        print("                Fallback extractor will be used. Optional:")
+        print("                ollama pull qwen3:0.6b && ollama pull nomic-embed-text")
 
 
-def start_server(host: str, port: int) -> None:
+def start_server(host: str, port: int, reload: bool = False, open_browser: bool = False) -> None:
     os.chdir(ROOT)
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
     try:
         import uvicorn
     except ImportError as exc:
-        raise SystemExit(
-            "uvicorn is not installed. Run:  python setup.py"
-        ) from exc
+        raise SystemExit("uvicorn is not installed. Run:  python start.py") from exc
+    url = f"http://127.0.0.1:{port}"
     print()
     print("Starting Second Brain")
-    print(f"  Local URL  : http://127.0.0.1:{port}")
+    print(f"  Local URL  : {url}")
     print(f"  Bind       : {host}:{port}")
     print("  Privacy    : LOCAL · PRIVATE · no telemetry")
     print("  Stop       : Ctrl+C")
+    if reload:
+        print("  Reload     : on")
     print()
-    uvicorn.run("backend.app:app", host=host, port=port, reload=False, log_level="info")
+    if open_browser:
+        threading.Timer(1.2, lambda: webbrowser.open(url)).start()
+    uvicorn.run("backend.app:app", host=host, port=port, reload=reload, log_level="info")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Start Second Brain")
     parser.add_argument("--check", action="store_true", help="Verify environment and exit")
-    parser.add_argument("--setup", action="store_true", help="Install missing deps and exit")
+    parser.add_argument("--check-only", action="store_true", help="Alias for --check")
+    parser.add_argument("--no-install", action="store_true", help="Do not install missing packages")
+    parser.add_argument("--dev", action="store_true", help="Start with auto-reload")
+    parser.add_argument("--open", action="store_true", help="Open the local URL in a browser")
     parser.add_argument("--host", default=os.environ.get("SECOND_BRAIN_HOST", "0.0.0.0"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("SECOND_BRAIN_PORT", "8000")))
     args = parser.parse_args(argv)
@@ -232,14 +236,14 @@ def main(argv: list[str] | None = None) -> int:
     info = detect_environment()
     print_env(info)
 
-    if args.check:
+    if args.check or args.check_only:
         create_dirs()
         if info["missing"] and not venv_python().is_file():
             print("FAIL: missing runtime packages:", ", ".join(info["missing"]))
             return 1
         if info["missing"] and venv_python().is_file() and not running_in_project_venv():
-            # Recheck inside the project venv without starting the server.
-            rc = subprocess.call([str(venv_python()), str(ROOT / "start.py"), "--check"])
+            extra = ["--check"]
+            rc = subprocess.call([str(venv_python()), str(ROOT / "start.py"), *extra])
             return rc
         try:
             verify_imports()
@@ -249,13 +253,17 @@ def main(argv: list[str] | None = None) -> int:
         print("OK: environment is ready.")
         return 0
 
-    # Prefer the project venv so we never pip-install into a managed system Python.
-    if missing_runtime() and not running_in_project_venv():
+    allow_install = not args.no_install
+    if allow_install and missing_runtime() and not running_in_project_venv():
         ensure_venv()
         if venv_python().is_file():
             reexec_in_venv_if_needed()
 
-    installed = setup_only()
+    try:
+        installed = setup_only(allow_install=allow_install)
+    except SystemExit as exc:
+        print("ERROR:", exc)
+        return 1
     if installed:
         print("Installed:", ", ".join(installed))
 
@@ -265,11 +273,7 @@ def main(argv: list[str] | None = None) -> int:
         print("ERROR:", exc)
         return 1
 
-    if args.setup:
-        print("Setup complete. Run:  python start.py")
-        return 0
-
-    start_server(args.host, args.port)
+    start_server(args.host, args.port, reload=args.dev, open_browser=args.open)
     return 0
 
 

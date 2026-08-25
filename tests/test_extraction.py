@@ -49,6 +49,25 @@ def test_preference_relation():
     assert "prefers" in rels
 
 
+def test_prefer_instead_does_not_create_junk_entity():
+    _run("I prefer Python")
+    r = _run("I prefer Rust instead of Python")
+    names = {e["name"] for e in store.all_entities()}
+    assert "Rust Instead Of Python" not in names
+    assert "Rust" in names
+    uid = store.ensure_user_entity()
+    py = store.find_entity_by_name("Python")
+    rust = store.find_entity_by_name("Rust")
+    py_rel = db.query(
+        "SELECT * FROM relationships WHERE source_id=? AND target_id=? AND relation='prefers'",
+        (uid, py["id"]))
+    rust_rel = db.query(
+        "SELECT * FROM relationships WHERE source_id=? AND target_id=? AND relation='prefers'",
+        (uid, rust["id"]))
+    assert py_rel and py_rel[0]["status"] == "superseded"
+    assert rust_rel and rust_rel[0]["status"] == "active"
+
+
 def test_location_relation():
     r = _run("I live in Berlin")
     rels = [(x["relation"]) for x in r["relationships"]]

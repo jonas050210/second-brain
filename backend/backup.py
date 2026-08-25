@@ -10,11 +10,10 @@ local. Provides listing + status of the latest backup.
 """
 import json
 import os
-import shutil
 import sqlite3
 from datetime import datetime
 
-from . import config, db, export, store
+from . import config, db, export
 
 
 def backup_dir():
@@ -45,16 +44,17 @@ def create_backup():
         src.close()
 
     # 2. JSON + Markdown exports.
+    errors = []
     try:
         with open(os.path.join(target_dir, "export.json"), "w", encoding="utf-8") as f:
             f.write(export.export_json())
-    except Exception:
-        pass
+    except Exception as exc:
+        errors.append(f"export.json: {exc}")
     try:
         with open(os.path.join(target_dir, "export.md"), "w", encoding="utf-8") as f:
             f.write(export.export_markdown())
-    except Exception:
-        pass
+    except Exception as exc:
+        errors.append(f"export.md: {exc}")
 
     meta = {
         "created_at": datetime.now().isoformat(),
@@ -62,6 +62,8 @@ def create_backup():
         "export_json": os.path.exists(os.path.join(target_dir, "export.json")),
         "export_md": os.path.exists(os.path.join(target_dir, "export.md")),
     }
+    if errors:
+        meta["errors"] = errors
     with open(os.path.join(target_dir, "backup.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
 

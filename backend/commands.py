@@ -24,7 +24,7 @@ COMMAND_LEADS = [
     "pin ", "unpin ", "mark ", "unmark ",
     "merge ", "change ", "update ", "rename ", "set confidence",
     "make this important", "make ", "stop remembering",
-    "important",
+    "important", "unimportant",
 ]
 
 
@@ -34,7 +34,7 @@ def is_command(text):
         t.startswith(("remember ", "forget ", "remove ", "delete ", "pin ",
                       "unpin ", "mark ", "unmark ", "merge ", "change ",
                       "update ", "rename ", "please remember", "please forget",
-                      "stop remembering", "important "))
+                      "stop remembering", "important ", "unimportant "))
 
 
 def _find_entity(name):
@@ -172,12 +172,14 @@ def handle_command(text):
         store.add_memory("command", f'Marked {e["name"]} as important', entity_ids=[e["id"]])
         return {"reply": f'Marked "{e["name"]}" as important.', "ok": True, "entities": [e["id"]]}
 
-    m = re.match(r"unmark\s+(.+)$", tl, re.I)
+    m = re.match(r"(?:unmark\s+(.+?)(?:\s+as\s+important)?|unimportant\s+(.+)|mark\s+(.+?)\s+as\s+unimportant)$", tl, re.I)
     if m:
-        e = _find_entity(m.group(1).strip())
+        name = next((g for g in m.groups() if g), "").strip()
+        e = _find_entity(name)
         if not e:
-            return {"reply": f"I couldn't find an entity matching \"{m.group(1).strip()}\".", "ok": False}
+            return {"reply": f"I couldn't find an entity matching \"{name}\".", "ok": False}
         store.update_entity(e["id"], important=0)
+        store.add_memory("command", f'Unmarked {e["name"]}', entity_ids=[e["id"]])
         return {"reply": f'Unmarked "{e["name"]}".', "ok": True, "entities": [e["id"]]}
 
     # ---- merge X with Y ---------------------------------------------------
@@ -285,15 +287,16 @@ def forget_target(target):
     tl = target.lower()
 
     # "that I am learning Rust" -> supersede the learning relationship.
-    m = re.match(r"(?:that\s+)?(?:i\s+)?(?:am|was|is|were)?\s*(learning|using|working on|into|interested in)\s+(.+)$", tl)
+    m = re.match(r"(?:that\s+)?(?:i\s+)?(?:am|was|is|were)?\s*(learning|using|working on|into|interested in|prefer|preferring)\s+(.+)$", tl)
     if m:
         rel, name = m.group(1).strip(), m.group(2).strip()
         e = _find_entity(name)
         if not e:
             return {"reply": f"I couldn't find \"{name}\".", "ok": False}
-        # For learning/uses: supersede rather than delete (keep history).
+        # For learning/uses/prefers: supersede rather than delete (keep history).
         rel_map = {"learning": "learning", "using": "uses", "working on": "works_on",
-                   "into": "interested_in", "interested in": "interested_in"}
+                   "into": "interested_in", "interested in": "interested_in",
+                   "prefer": "prefers", "preferring": "prefers"}
         rel = rel_map.get(rel, "learning")
         changed = store.supersede_relationship(store.ensure_user_entity(), e["id"], rel)
         if changed:

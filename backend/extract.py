@@ -284,7 +284,11 @@ _INSTEAD_RE = re.compile(
 )
 _STOP_RE = re.compile(
     r"(?:stopped|no longer|quit|gave up on|dropped)\s+"
-    r"(?:learning|studying|using|working on|practicing)\s+(.+?)(?:[.!?;,]|$)",
+    r"(?:learning|studying|using|working on|practicing|learn|use)\s+(.+?)(?:[.!?;,]|$)",
+    re.I,
+)
+_PREFER_INSTEAD_RE = re.compile(
+    r"prefer(?:s)?\s+(.+?)\s+(?:instead of|rather than|over)\s+(.+?)(?:[.!?;,]|$)",
     re.I,
 )
 
@@ -325,6 +329,16 @@ def _augment_from_text(text, data):
     for m in _STOP_RE.finditer(text):
         _add_stop(m.group(1).strip(), "learning")
         _add_stop(m.group(1).strip(), "uses")
+    for m in _PREFER_INSTEAD_RE.finditer(text):
+        new, old = m.group(1).strip(), m.group(2).strip()
+        _add_stop(old, "prefers")
+        if new:
+            data["relationships"].append(
+                {"source": "User", "target": new, "relation": "prefers", "confidence": 0.9}
+            )
+            data["entities"].append(
+                {"name": new, "type": "preference", "description": "", "confidence": 0.9}
+            )
 
     seen, dedup = set(), []
     for s in stops:

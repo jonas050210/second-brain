@@ -1,37 +1,35 @@
 # Second Brain — Roadmap
 
 Local-first personal AI memory. Reliability over cleverness.
+The database is the source of truth.
 
 ## Done
 
-- Automatic memory extraction from chat (Ollama + offline fallback)
+- Chat, conversations, last-N context, persisted assistant replies
+- Automatic extraction (Ollama + honest offline fallback)
+- Deterministic memory commands including Important / Unimportant
 - Entities, relationships, facts, aliases, confidence, sources, timestamps
-- Active / superseded / pinned / important state
-- Duplicate merge, conflict detection, supersession, memory history
-- Knowledge graph (real SQLite data): pan, zoom, focus, expand, filters
-- Hybrid search (keyword + semantic + graph) and multi-hop RAG
-- KNOWN / UNKNOWN / UNCERTAIN answers with sources
-- Memory consolidation (summaries reference originals; nothing is deleted)
+- Active / superseded / pinned / important
+- Duplicate merge and exclusive-fact supersession
+- Knowledge graph as a visualization of SQLite
+- Hybrid search + multi-hop RAG with KNOWN / UNCERTAIN / UNKNOWN
+- Memory consolidation (originals kept)
 - JSON / Markdown export; validated merge / replace import
-- Local backups (SQLite + JSON + Markdown), no secrets
-- Dashboard from live data; demo data is labelled
-- Settings: Ollama URL, models, thresholds, auto-memory, privacy, reset, demo
-- start.py / setup.py / main.py launcher (no repeated reinstall; Ollama probe)
-- Offline fallback when Ollama is down
-- Conversation switcher, SSE chat, reset/replace confirmation
-- Deterministic Remember / Forget / Pin / Important / Merge / … commands
+- Local backups (SQLite + JSON + MD)
+- Dashboard from live data; labelled demo data
+- Settings, privacy panel, confirmed reset/replace
+- start.py as the only primary launcher (no setup.py, no start.bat)
 
-## Next
+## Next (optional)
 
-- Optional scheduled backups
-- Richer conversation search across all threads
-- Optional GPU-aware Ollama model recommendations for 8 GB VRAM
-- Plugin extractors for notes / files the user explicitly imports
-- Multi-user is out of scope (this is a personal, local brain)
+- Scheduled backups
+- Token-level streaming after extraction completes
+- Explicit user-initiated file/note import
 
 ## Non-goals
 
 - Cloud sync by default
 - Telemetry
 - Inventing personal memories
-- Replacing the local SQLite graph with a second store
+- A second graph store
+- A second extraction implementation

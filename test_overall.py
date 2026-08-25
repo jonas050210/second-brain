@@ -71,14 +71,11 @@ def client():
 # --------------------------------------------------------------------------
 
 def test_startup_modules_importable():
-    import main as main_mod
-    import setup as setup_mod
     import start as start_mod
 
-    assert hasattr(main_mod, "app")
-    assert callable(setup_mod.main)
     assert callable(start_mod.main)
     assert start_mod.missing_runtime() == [] or isinstance(start_mod.missing_runtime(), list)
+    assert start_mod.main(["--check-only"]) == 0
 
 
 def test_start_check_succeeds_in_ready_env():
@@ -97,9 +94,11 @@ def test_frontend_assets_present():
 
 
 def test_root_contract_files_exist():
-    for name in ("main.py", "start.py", "setup.py", "test_overall.py",
-                 "README.md", "requirements.txt", "ROADMAP"):
+    for name in ("start.py", "test_overall.py", "requirements.txt",
+                 "README.md", "ROADMAP", ".env.example", ".gitignore"):
         assert (_ROOT / name).is_file(), f"missing required root file: {name}"
+    assert not (_ROOT / "setup.py").exists()
+    assert not (_ROOT / "start.bat").exists()
 
 
 # --------------------------------------------------------------------------

@@ -105,6 +105,26 @@ def test_important_command():
     assert store.entity_row(e)["important"] == 1
 
 
+def test_unimportant_command():
+    e = store.create_entity("Rust", "technology")
+    store.update_entity(e, important=1)
+    r = commands.handle_command("Unimportant Rust")
+    assert r["ok"] is True
+    assert store.entity_row(e)["important"] == 0
+
+
+def test_forget_prefer_supersedes_not_deletes():
+    uid = store.ensure_user_entity()
+    dark = store.create_entity("Dark Mode", "preference")
+    store.add_relationship(uid, dark, "prefers")
+    r = commands.handle_command("Forget that I prefer dark mode.")
+    assert r["ok"] is True
+    assert store.entity_row(dark) is not None
+    rels = db.query("SELECT * FROM relationships WHERE source_id=? AND target_id=? AND relation='prefers'",
+                    (uid, dark))
+    assert rels and rels[0]["status"] == "superseded"
+
+
 def test_stop_remembering_forgets_entity():
     e = store.create_entity("OldFact", "concept")
     r = commands.handle_command("Stop remembering OldFact")
