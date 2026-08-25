@@ -46,9 +46,17 @@ def vec_to_json(vec):
 
 
 def vec_from_json(s):
+    """Decode a stored embedding without letting corrupt rows break the app."""
     if not s:
         return None
-    return np.array(json.loads(s), dtype=np.float32)
+    try:
+        payload = json.loads(s) if isinstance(s, str) else s
+        vec = np.asarray(payload, dtype=np.float32)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if vec.ndim != 1 or vec.size == 0 or not np.all(np.isfinite(vec)):
+        return None
+    return vec
 
 
 _EMBED_CACHE = {}
@@ -126,29 +134,48 @@ def create_entity(name, etype="concept", description="", confidence=0.8,
 def update_entity(eid, **fields):
     allowed = {"name", "type", "description", "aliases", "confidence", "meta",
                "status", "pinned", "important"}
+    fields = {k: v for k, v in fields.items() if k in allowed}
+    if not fields:
+        return False
+
+    if "name" in fields:
+        name = fields["name"]
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("entity name cannot be empty")
+        normalized = normalize_name(name)
+        conflict = db.query_one(
+            "SELECT id FROM entities WHERE norm_name=? AND id<>?",
+            (normalized, eid),
+        )
+        if conflict:
+            raise ValueError("an entity with that name already exists")
+        fields["name"] = name.strip()
+        # Update name and norm_name in one statement. A failed rename must not
+        # leave a half-renamed row with mismatched lookup fields.
+        fields["norm_name"] = normalized
+
     sets, params = [], []
     for k, v in fields.items():
-        if k not in allowed:
-            continue
         if k in ("aliases", "meta"):
             v = json.dumps(v)
         sets.append(f"{k}=?")
         params.append(v)
-    if not sets:
-        return
     sets.append("updated_at=?")
     params.append(db.utcnow())
     params.append(eid)
     db.execute(f"UPDATE entities SET {', '.join(sets)} WHERE id=?", params)
-    if "name" in fields:
-        db.execute("UPDATE entities SET norm_name=? WHERE id=?",
-                   (normalize_name(fields["name"]), eid))
+    return True
 
 
 def _cosine(a, b):
     if a is None or b is None or a.size == 0 or b.size == 0:
         return 0.0
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
+    if a.ndim != 1 or b.ndim != 1 or a.size != b.size:
+        return 0.0
+    try:
+        return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def find_duplicate(entity_name, etype, embedding=None):
@@ -219,15 +246,45 @@ def upsert_entity(name, etype, description="", confidence=0.8, source_message_id
 
 
 def merge_entities(keep_id, drop_id):
-    """Merge `drop_id` into `keep_id`."""
+    """Merge `drop_id` into `keep_id` without losing conflicting links."""
     keep = db.query_one("SELECT * FROM entities WHERE id=?", (keep_id,))
     drop = db.query_one("SELECT * FROM entities WHERE id=?", (drop_id,))
     if not keep or not drop or keep_id == drop_id:
         return {"error": "invalid merge target"}
+    if drop["norm_name"] == normalize_name(config.USER_ENTITY_NAME):
+        return {"error": "cannot merge away the User entity"}
 
-    db.execute("UPDATE OR IGNORE relationships SET source_id=? WHERE source_id=?", (keep_id, drop_id))
-    db.execute("UPDATE OR IGNORE relationships SET target_id=? WHERE target_id=?", (keep_id, drop_id))
-    db.execute("DELETE FROM relationships WHERE source_id=target_id")
+    # Rewire one relationship at a time. UPDATE OR IGNORE would silently leave
+    # a duplicate on the dropped node, and the later entity delete would lose
+    # that fact entirely.
+    drop_rels = db.query(
+        "SELECT * FROM relationships WHERE source_id=? OR target_id=? ORDER BY id",
+        (drop_id, drop_id),
+    )
+    for rel in drop_rels:
+        source_id = keep_id if rel["source_id"] == drop_id else rel["source_id"]
+        target_id = keep_id if rel["target_id"] == drop_id else rel["target_id"]
+        if source_id == target_id:
+            db.execute("DELETE FROM relationships WHERE id=?", (rel["id"],))
+            continue
+        existing = db.query_one(
+            "SELECT * FROM relationships WHERE source_id=? AND target_id=? "
+            "AND relation=? AND id<>?",
+            (source_id, target_id, rel["relation"], rel["id"]),
+        )
+        if existing:
+            status = "active" if rel.get("status") == "active" or existing.get("status") == "active" else "superseded"
+            db.execute(
+                "UPDATE relationships SET confidence=MAX(confidence,?), status=?, "
+                "source_message_id=COALESCE(source_message_id, ?) WHERE id=?",
+                (rel.get("confidence", 0.8), status, rel.get("source_message_id"), existing["id"]),
+            )
+            db.execute("DELETE FROM relationships WHERE id=?", (rel["id"],))
+        else:
+            db.execute(
+                "UPDATE relationships SET source_id=?, target_id=? WHERE id=?",
+                (source_id, target_id, rel["id"]),
+            )
 
     aliases = json.loads(keep.get("aliases") or "[]")
     for a in json.loads(drop.get("aliases") or "[]"):
@@ -327,7 +384,8 @@ def similar_entities(eid, limit=6, min_score=0.78):
 # Relationships (with supersession for stale facts)
 # --------------------------------------------------------------------------
 
-def add_relationship(source_id, target_id, relation, confidence=0.8, source_message_id=None):
+def add_relationship(source_id, target_id, relation, confidence=0.8,
+                      source_message_id=None, created_at=None):
     if source_id == target_id:
         return None
     existing = db.query_one(
@@ -336,15 +394,19 @@ def add_relationship(source_id, target_id, relation, confidence=0.8, source_mess
     )
     if existing:
         # Re-activate a previously superseded relationship when re-asserted.
+        # A newer source is more useful for traceability; an import can still
+        # leave it unchanged by omitting source_message_id.
         db.execute(
-            "UPDATE relationships SET confidence=MAX(confidence,?), status='active' WHERE id=?",
-            (confidence, existing["id"]),
+            "UPDATE relationships SET confidence=MAX(confidence,?), status='active', "
+            "source_message_id=COALESCE(?, source_message_id) WHERE id=?",
+            (confidence, source_message_id, existing["id"]),
         )
         return existing["id"]
     return db.execute(
         "INSERT INTO relationships(source_id, target_id, relation, confidence, "
         "source_message_id, created_at, status) VALUES(?,?,?,?,?,?,'active')",
-        (source_id, target_id, relation, confidence, source_message_id, db.utcnow()),
+        (source_id, target_id, relation, confidence, source_message_id,
+         created_at or db.utcnow()),
     )
 
 
@@ -434,11 +496,14 @@ def relationship_row(rid):
 # Conversations (short-term context, separate from long-term memory)
 # --------------------------------------------------------------------------
 
-def create_conversation(title=""):
-    now = db.utcnow()
+def create_conversation(title="", created_at=None, updated_at=None,
+                        pinned=0, archived=0):
+    created_at = created_at or db.utcnow()
+    updated_at = updated_at or created_at
     return db.execute(
-        "INSERT INTO conversations(title, created_at, updated_at) VALUES(?,?,?)",
-        (title, now, now),
+        "INSERT INTO conversations(title, created_at, updated_at, pinned, archived) "
+        "VALUES(?,?,?,?,?)",
+        (title, created_at, updated_at, 1 if pinned else 0, 1 if archived else 0),
     )
 
 
@@ -573,12 +638,13 @@ def delete_conversation(cid):
 # Memories (timeline events)
 # --------------------------------------------------------------------------
 
-def add_memory(kind, text, entity_ids=None, message_id=None, confidence=0.8, meta=None):
+def add_memory(kind, text, entity_ids=None, message_id=None, confidence=0.8,
+               meta=None, created_at=None):
     return db.execute(
         "INSERT INTO memories(kind, text, entity_ids, message_id, confidence, created_at, meta) "
         "VALUES(?,?,?,?,?,?,?)",
-        (kind, text, json.dumps(entity_ids or []), message_id, confidence, db.utcnow(),
-         json.dumps(meta or {})),
+        (kind, text, json.dumps(entity_ids or []), message_id, confidence,
+         created_at or db.utcnow(), json.dumps(meta or {})),
     )
 
 
@@ -605,11 +671,14 @@ def memories_for_entity(eid, limit=50):
 # Messages
 # --------------------------------------------------------------------------
 
-def add_message(role, content, conversation_id=None, embedding=None, extracted=0, meta=None):
+def add_message(role, content, conversation_id=None, embedding=None, extracted=0,
+                meta=None, created_at=None):
+    if isinstance(embedding, str):
+        embedding = vec_from_json(embedding)
     return db.execute(
         "INSERT INTO messages(conversation_id, role, content, created_at, embedding, extracted, meta) "
         "VALUES(?,?,?,?,?,?,?)",
-        (conversation_id, role, content, db.utcnow(), vec_to_json(embedding), extracted,
+        (conversation_id, role, content, created_at or db.utcnow(), vec_to_json(embedding), extracted,
          json.dumps(meta or {})),
     )
 
@@ -659,6 +728,11 @@ def _write_undo_stack(stack):
 
 def undo_available():
     return bool(_read_undo_stack())
+
+
+def clear_undo_stack():
+    """Discard undo metadata after a reset or database replacement."""
+    _write_undo_stack([])
 
 
 def record_last_extract(turn):

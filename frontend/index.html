@@ -27,25 +27,25 @@
       </div>
 
       <nav class="nav">
-        <button class="nav-item active" data-view="dashboard">
+        <button class="nav-item active" data-view="dashboard" title="Dashboard" aria-label="Dashboard">
           <span class="nav-ico">▦</span> Dashboard
         </button>
-        <button class="nav-item" data-view="chat">
+        <button class="nav-item" data-view="chat" title="Chat" aria-label="Chat">
           <span class="nav-ico">✉</span> Chat
         </button>
-        <button class="nav-item" data-view="graph">
+        <button class="nav-item" data-view="graph" title="Knowledge Graph" aria-label="Knowledge Graph">
           <span class="nav-ico">◉</span> Knowledge Graph
         </button>
-        <button class="nav-item" data-view="browse">
+        <button class="nav-item" data-view="browse" title="Entities" aria-label="Entities">
           <span class="nav-ico">▤</span> Entities
         </button>
-        <button class="nav-item" data-view="memory">
+        <button class="nav-item" data-view="memory" title="Memory" aria-label="Memory">
           <span class="nav-ico">🕘</span> Memory
         </button>
-        <button class="nav-item" data-view="search">
+        <button class="nav-item" data-view="search" title="Search" aria-label="Search">
           <span class="nav-ico">⌕</span> Search
         </button>
-        <button class="nav-item" data-view="settings">
+        <button class="nav-item" data-view="settings" title="Settings" aria-label="Settings">
           <span class="nav-ico">⚙</span> Settings
         </button>
       </nav>
@@ -71,7 +71,7 @@
         <div class="demo-banner" id="demo-banner" style="display:none">
           This database contains <strong>DEMO</strong> data. It is marked separately from your real memories.
         </div>
-        <div class="stats-grid" id="stats-grid"></div>
+        <div class="stats-grid" id="stats-grid"><div class="loading-state">Loading dashboard…</div></div>
 
         <div class="dash-cols">
           <div class="panel">
@@ -118,7 +118,7 @@
               <input type="checkbox" id="conv-archived" />
               <span>Archived</span>
             </label>
-            <div id="conv-list" class="conv-list"></div>
+            <div id="conv-list" class="conv-list"><p class="loading-state">Loading conversations…</p></div>
           </aside>
         <div class="chat-wrap">
           <div class="chat-scroll" id="chat-scroll">
@@ -234,7 +234,7 @@
           </label>
           <button class="btn-ghost" id="browse-dupes">Find duplicates</button>
         </div>
-        <div id="browse-list" class="browse-list"></div>
+        <div id="browse-list" class="browse-list"><p class="loading-state">Loading entities…</p></div>
       </section>
 
       <!-- ============ MEMORY ============ -->
@@ -261,7 +261,7 @@
           <input id="mem-date" class="input" type="date" />
           <button class="btn-ghost" id="mem-clear">Clear</button>
         </div>
-        <div class="timeline" id="timeline"></div>
+        <div class="timeline" id="timeline"><p class="loading-state">Loading memory…</p></div>
       </section>
 
       <!-- ============ SEARCH ============ -->
@@ -463,7 +463,7 @@
   </div>
 
   <!-- Toast -->
-  <div class="toast" id="toast"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="app.js"></script>
 </body>

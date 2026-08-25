@@ -179,6 +179,31 @@ def test_similar_entities_by_embedding():
     assert all(h["score"] >= 0.78 for h in hits)
 
 
+def test_merge_preserves_conflicting_relationships():
+    keep = store.create_entity("Keep", "project")
+    drop = store.create_entity("Drop", "project")
+    tech = store.create_entity("Rust", "technology")
+    store.add_relationship(keep, tech, "uses", confidence=0.5)
+    store.add_relationship(drop, tech, "uses", confidence=0.9)
+
+    result = store.merge_entities(keep, drop)
+    assert result["ok"] is True
+    rels = db.query(
+        "SELECT * FROM relationships WHERE source_id=? AND target_id=? AND relation='uses'",
+        (keep, tech),
+    )
+    assert len(rels) == 1
+    assert rels[0]["confidence"] == 0.9
+
+
+def test_merge_cannot_remove_user():
+    user = store.ensure_user_entity()
+    other = store.create_entity("Other", "concept")
+    result = store.merge_entities(other, user)
+    assert result["error"] == "cannot merge away the User entity"
+    assert store.entity_row(user) is not None
+
+
 def test_merge_preserves_description():
     a = store.create_entity("Nebula", "project", description="AI workspace")
     b = store.create_entity("Nebula2", "project", description="")

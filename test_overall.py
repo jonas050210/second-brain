@@ -97,10 +97,14 @@ def test_frontend_assets_present():
 
 def test_root_contract_files_exist():
     for name in ("start.py", "test_overall.py", "requirements.txt",
-                 "README.md", "ROADMAP", "projekt.md", ".env.example", ".gitignore"):
+                 "README.md", "ROADMAP", "project.md", "projekt.md",
+                 ".env.example", ".gitignore"):
         assert (_ROOT / name).is_file(), f"missing required root file: {name}"
     assert not (_ROOT / "setup.py").exists()
     assert not (_ROOT / "start.bat").exists()
+    overview = (_ROOT / "project.md").read_text(encoding="utf-8")
+    assert "## File map and code inventory" in overview
+    assert "## API route index" in overview
     archive = (_ROOT / "projekt.md").read_text(encoding="utf-8")
     assert "## `backend/app.py`" in archive
     assert "## `start.py`" in archive
@@ -217,8 +221,10 @@ def test_exclusive_lives_in_supersedes():
 def test_remember_command_without_that(client):
     r = client.post("/api/chat", json={"content": "Remember I prefer Python"})
     body = r.json()
-    # Forced extraction of the payload.
-    assert body.get("is_command") is not True or body.get("remembered") is not None
+    # The explicit wrapper controls the payload, but extraction still writes
+    # the durable preference through the normal pipeline.
+    assert body.get("is_command") is not True
+    assert body.get("remembered")
     py = store.find_entity_by_name("Python")
     assert py is not None
     uid = store.ensure_user_entity()

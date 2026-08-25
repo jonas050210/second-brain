@@ -14,6 +14,11 @@ Browser  →  FastAPI  →  SQLite
 Reliability over cleverness. The database is the source of truth. The graph
 visualizes the database. RAG never invents personal facts.
 
+`project.md` is the compact orientation map for humans and AI agents: it lists
+files, symbols, routes, views, and tests with short descriptions. It does not
+duplicate the source. `projekt.md` remains the full generated source archive
+for compatibility and explicit deep audits.
+
 ---
 
 ## How it works
@@ -176,9 +181,12 @@ the last three). Entities stay. Say **Summarize this conversation** or click
 **Σ** on a chat: that writes a recap memory and never deletes the messages.
 
 The chat rail can search, pin, archive, summarize, and export conversations
-as Markdown. You can import a local `.txt` / `.md` / `.json` file you pick
+as Markdown; clicking a conversation title opens it, while double-clicking
+renames it. You can import a local `.txt` / `.md` / `.json` file you pick
 yourself. Entity aliases are editable. Unlinked entities and near-duplicates
-are listed so you can merge them — nothing auto-deletes.
+are listed so you can merge them — nothing auto-deletes. Dashboard memory
+entries open their source message, and the GUI keeps loading/error states local
+to each panel instead of failing the whole screen.
 
 Forgetting a preference or a “learning X” fact **supersedes** it. It does not
 silently delete history.
@@ -188,12 +196,13 @@ silently delete history.
 ## Search / RAG
 
 Keyword + semantic + graph + recency + confidence + active/superseded + bounded
-multi-hop. Short names (`Go`, `C#`, `AI`) are searchable. Direct questions
-such as “Where do I live?”, “What technology does the game engine use?”,
-“Who uses Bevy?”, “When did I start learning Rust?”, “What did I stop?”,
-“What changed this week?”, “What do I know?”, and “How many projects do I have?”
-read the graph first. If there is no evidence, the answer is UNKNOWN. Ollama
-replies that invent names are dropped.
+multi-hop. Short names (`Go`, `C#`, `AI`) are searchable. The type, confidence,
+status, flag, date, and source filters apply to facts as well as entity results.
+Direct questions such as “Where do I live?”, “What technology does the game
+engine use?”, “Who uses Bevy?”, “When did I start learning Rust?”, “What did I
+stop?”, “What changed this week?”, “What do I know?”, and “How many projects do
+I have?” read the graph first. If there is no evidence, the answer is UNKNOWN.
+Ollama replies that invent names are dropped.
 
 ---
 
@@ -214,16 +223,22 @@ The entity panel lists near-duplicates so you can merge them yourself.
 - JSON + Markdown export
 - Merge import or replace import (replace requires `confirm=true`)
 - Merge import reports exclusive-fact conflicts and skipped relationships
+- Imports validate the complete payload before writing; source messages,
+  conversations, flags, timestamps, and source links are remapped on import
 - User relationships are remapped
 - Local backups under `data/backups/` (SQLite + JSON + MD)
 - Optional automatic local backups (default every 24 hours; never deletes)
 - Secrets are not exported
-- Reset requires confirmation
+- Reset requires confirmation and creates a local safety snapshot first
+- Replace import also creates a safety snapshot before wiping current rows
 - Restore a named local backup (creates a safety snapshot first)
 - Paste notes (plain text / markdown paragraphs) to extract memories
 - User-picked local text/markdown/JSON file ingest (never scans your disk)
 - Conversation recap (Σ / “Summarize this conversation”) — originals stay
-- Undo stack of the last three extracts (supersede, never wipe the brain)
+- Undo stack of the last three extracts (supersede, never wipe the brain); reset
+  and replace clear stale undo metadata
+- Merge keeps both sides of a duplicate relationship and combines their
+  confidence instead of dropping the link
 
 ---
 
@@ -245,6 +260,7 @@ second-brain/
 ├── requirements.txt
 ├── README.md
 ├── ROADMAP
+├── project.md             # compact AI/human project overview
 ├── projekt.md             # full first-party source archive
 ├── .env.example
 ├── .gitignore
@@ -260,6 +276,8 @@ second-brain/
 
 - Single-user, local only
 - Offline extractor is intentionally small; hard phrasing is better with Ollama
+- Ollama is optional and fail-closed: unavailable or malformed model responses
+  use the deterministic local fallback
 - SSE chat extracts first, then streams the reply token-by-token when Ollama is up
 - Playwright browser tests skip if Chromium is not installed
 - Learning several things at once is allowed unless you stop or switch
