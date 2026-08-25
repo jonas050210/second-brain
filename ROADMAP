@@ -18,7 +18,8 @@ The database is the source of truth.
 - Local backups (SQLite + JSON + MD)
 - Dashboard from live data; labelled demo data
 - Settings, privacy panel, confirmed reset/replace
-- start.py as the only primary launcher (no setup.py, no start.bat)
+- start.py as the only primary Python launcher (no setup.py, no start.bat)
+- SecondBrain.exe bootstrapper (PyInstaller) with a setup GUI; same FastAPI app
 
 ## Next (optional)
 

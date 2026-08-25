@@ -6,9 +6,11 @@ edited by hand — change models via .env / Settings instead of touching code.
 """
 import os
 
+from . import paths
+
 # ---- Paths ---------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+BASE_DIR = str(paths.app_root())
+FRONTEND_DIR = str(paths.frontend_dir())
 
 
 def _load_dotenv():
@@ -16,6 +18,7 @@ def _load_dotenv():
     for candidate in (
         os.path.join(BASE_DIR, ".env"),
         os.path.join(BASE_DIR, "backend", ".env"),
+        os.path.join(str(paths.app_root()), ".env"),
     ):
         if not os.path.isfile(candidate):
             continue
@@ -36,7 +39,8 @@ def _load_dotenv():
 
 _load_dotenv()
 
-DB_PATH = os.environ.get("SECOND_BRAIN_DB", os.path.join(BASE_DIR, "data", "brain.db"))
+# Persistent DB path. Never a PyInstaller temp extract directory.
+DB_PATH = str(paths.resolve_db_path())
 
 # ---- AI / model configuration (the "replaceable LLM" requirement) --------
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")

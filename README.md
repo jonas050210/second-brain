@@ -46,6 +46,35 @@ Target hardware: Windows 11, i7-12700F, RTX 4060 Ti 8GB, 32GB RAM.
 
 ## Windows 11 setup
 
+### Option A — double-click `SecondBrain.exe`
+
+Build on **Windows 11** from a Python 3.11 environment (PyInstaller cannot cross-compile a PE from Linux):
+
+```powershell
+python -m pip install -r requirements.txt
+python -m pip install pyinstaller
+python -m launcher.build_exe
+```
+
+That produces **`dist/SecondBrain.exe`**. Double-click it.
+
+First launch shows a dark setup window (version, current step, progress, log, Ollama status). It:
+
+- checks the packaged runtime
+- finds an existing `brain.db` next to the EXE (`dist\data\brain.db`) or under `%LOCALAPPDATA%\SecondBrain\data\brain.db`
+- creates that file only if none exists — it never deletes, resets, or replaces a brain
+- probes Ollama over HTTP (`qwen3:0.6b`, `nomic-embed-text`)
+- does **not** download models unless you set `SECOND_BRAIN_PULL_MODELS=1`
+- starts the **existing** FastAPI app and opens the browser
+
+If Ollama is down, the window says offline and the app uses the rule-based fallback. It does not crash.
+
+Later launches skip installs, skip model downloads, and reopen the same database. The setup window stays open with **Open browser** / **Quit** so the server is not killed when the first-run checks finish.
+
+`start.py` remains the normal Python launcher. The EXE is an additional bootstrapper, not a second application.
+
+### Option B — Python launcher
+
 ### 1. Optional: Ollama
 
 Install from https://ollama.com then:
@@ -176,17 +205,19 @@ the Ollama URL you configure.
 
 ```
 second-brain/
-├── start.py               # primary launcher
-├── test_overall.py        # high-level system tests
+├── start.py               # primary Python launcher
+├── launcher/              # EXE bootstrapper + setup GUI (not a second app)
+├── secondbrain.spec       # PyInstaller spec → dist/SecondBrain.exe
+├── test_overall.py
 ├── requirements.txt
 ├── README.md
 ├── ROADMAP
 ├── .env.example
 ├── .gitignore
-├── backend/               # FastAPI + SQLite + extract/search/graph
-├── frontend/              # static HTML/CSS/JS (no build)
+├── backend/
+├── frontend/
 ├── tests/
-└── data/brain.db          # created on first run
+└── data/brain.db          # created on first run; never deleted by the EXE
 ```
 
 ---
@@ -198,3 +229,4 @@ second-brain/
 - SSE chat emits a completed reply (extraction must finish first)
 - Playwright browser tests skip if Chromium is not installed
 - Learning several things at once is allowed unless you stop or switch
+- `SecondBrain.exe` must be built on Windows (PyInstaller does not cross-compile a PE from Linux)
