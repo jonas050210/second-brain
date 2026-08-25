@@ -6,10 +6,41 @@ edited by hand — change models via .env / Settings instead of touching code.
 """
 import os
 
+from . import paths
+
 # ---- Paths ---------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.environ.get("SECOND_BRAIN_DB", os.path.join(BASE_DIR, "data", "brain.db"))
-FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+BASE_DIR = str(paths.app_root())
+FRONTEND_DIR = str(paths.frontend_dir())
+
+
+def _load_dotenv():
+    """Load a local .env if present. Does not override already-set env vars."""
+    for candidate in (
+        os.path.join(BASE_DIR, ".env"),
+        os.path.join(BASE_DIR, "backend", ".env"),
+        os.path.join(str(paths.app_root()), ".env"),
+    ):
+        if not os.path.isfile(candidate):
+            continue
+        try:
+            with open(candidate, encoding="utf-8") as fh:
+                for raw in fh:
+                    line = raw.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip().strip("\"'")
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+        except OSError:
+            continue
+
+
+_load_dotenv()
+
+# Persistent DB path. Never a PyInstaller temp extract directory.
+DB_PATH = str(paths.resolve_db_path())
 
 # ---- AI / model configuration (the "replaceable LLM" requirement) --------
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -28,6 +59,11 @@ DEFAULT_CONFIDENCE_THRESHOLD = 0.4   # drop entities/relations below this
 DEFAULT_MERGE_SIMILARITY = 0.92      # cosine similarity at which entities auto-merge
 VECTOR_SEARCH_K = 8                  # top-k vector results
 SHORT_TERM_CONTEXT_TURNS = 10        # recent messages fed as conversation context
+MAX_CHAT_CHARS = 16000               # hard cap on a single chat / extract payload
+MAX_EXTRACT_CHARS = 8000             # extractor window (head of the message)
+DEFAULT_AUTO_BACKUP_HOURS = 24.0     # 0 disables scheduled local backups
+GRAPH_FOCUS_THRESHOLD = 40           # auto-switch the graph to User + 2 hops above this
+EXCLUSIVE_RELATIONS = ("prefers", "lives_in", "works_at")
 
 # --------------------------------------------------------------------------
 # Memory types (categories). Kept rich but non-forcing: the extractor only

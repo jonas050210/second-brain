@@ -40,7 +40,8 @@ def page(browser):
 
 def _seed_empty(page):
     """Reset the database so tests start from a clean slate."""
-    page.request.post(BASE_URL + "/api/reset")
+    page.request.post(BASE_URL + "/api/reset", data='{"confirm": true}',
+                      headers={"Content-Type": "application/json"})
 
 
 def _wait_boot(page):
@@ -109,6 +110,38 @@ def test_search_works(page):
     page.click("#search-btn")
     page.wait_for_selector("#search-answer", timeout=8000)
     assert "Rust" in page.locator("#search-answer").inner_text()
+
+
+def test_entity_browser_and_palette_markup():
+    html = open(os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html"), encoding="utf-8").read()
+    js = open(os.path.join(os.path.dirname(__file__), "..", "frontend", "app.js"), encoding="utf-8").read()
+    assert 'id="view-browse"' in html
+    assert 'id="palette"' in html
+    assert 'id="privacy-info"' in html
+    assert 'id="backup-list"' in html
+    assert 'id="gf-layout"' in html
+    assert 'id="set-auto-backup"' in html
+    assert 'id="conv-search"' in html
+    assert 'id="gf-around-me"' in html
+    assert 'id="graph-to-me"' in html
+    assert 'id="browse-sort"' in html
+    assert 'id="chat-undo"' in html
+    assert "conv-sum" in js
+    assert 'id="import-file"' in html
+    assert 'id="browse-orphans"' in html
+    assert 'id="mem-q"' in html
+    assert 'id="conv-archived"' in html
+    assert "function loadBrowse" in js
+    assert "function formatImportReport" in js
+    assert "/graph?focus=" in js
+    assert "function openPalette" in js
+    assert "function runGraphLayout" in js
+    assert "function applyRoute" in js
+    assert "function sourceChips" in js
+    assert "data-mid" in js
+    assert "Looks similar" in js
+    assert "sources: m.sources" in js
+    assert "function restore" not in js or "/backup/restore" in js
 
 
 def test_settings_load(page):

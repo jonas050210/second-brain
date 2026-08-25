@@ -68,3 +68,39 @@ def test_no_repeated_summary_of_same_cluster():
     cands = summarize.find_consolidation_candidates(min_shared=2)
     # Nebula should be skipped now that it's been summarized.
     assert not any(c["entity_name"] == "Nebula" for c in cands)
+
+
+def test_summarize_conversation_keeps_messages():
+    cid = store.new_conversation()
+    store.add_message("user", "I am learning Rust", conversation_id=cid)
+    extract.extract("I am learning Rust", source_message_id=store.conversation_messages(cid)[-1]["id"])
+    before = len(store.conversation_messages(cid))
+    r = summarize.summarize_conversation(cid)
+    assert r["ok"] is True
+    assert "Rust" in r["text"]
+    assert len(store.conversation_messages(cid)) == before
+    mem = db.query_one("SELECT * FROM memories WHERE id=?", (r["summary_id"],))
+    assert mem["kind"] == "summary"
+    meta = json.loads(mem["meta"] or "{}")
+    assert meta.get("conversation_id") == cid
+
+
+def test_summarize_conversation_empty():
+    cid = store.create_conversation("empty")
+    r = summarize.summarize_conversation(cid)
+    assert r["ok"] is False
+
+
+def test_summary_polish_drops_inventions(monkeypatch):
+    _seed_rich_entity()
+    nebula = store.find_entity_by_name("Nebula")
+    monkeypatch.setattr(summarize.ollama, "available", lambda: True)
+    monkeypatch.setattr(
+        summarize.ollama, "chat",
+        lambda *a, **k: "Nebula is a project at Google using Java.",
+    )
+    r = summarize.summarize_entity(nebula["id"])
+    assert r["ok"] is True
+    assert "Google" not in r["text"]
+    assert "Java" not in r["text"]
+    assert "Nebula" in r["text"]

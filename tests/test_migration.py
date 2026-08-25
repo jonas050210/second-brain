@@ -62,6 +62,8 @@ def test_migration_v2_to_v3(monkeypatch, tmp_path):
     # user_version bumped.
     ver = conn.execute("PRAGMA user_version").fetchone()[0]
     assert ver == db.SCHEMA_VERSION
+    conv_cols = {r[1] for r in conn.execute("PRAGMA table_info(conversations)")}
+    assert "pinned" in conv_cols and "archived" in conv_cols
     conn.close()
 
 

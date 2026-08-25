@@ -1,45 +1,36 @@
 # Second Brain — Local AI Knowledge Graph
 
-A **local, private "Second Brain"** that builds a personal knowledge graph
-automatically from normal conversation. You just talk to it — it extracts
-people, projects, technologies, skills, interests, goals, facts and the
-relationships between them, merges duplicates, remembers everything across
-sessions, and answers questions from real memory (RAG) without hallucinating.
+A **local, private Second Brain** (v2.7.0). You talk to it. It extracts durable
+facts into a SQLite knowledge graph, then answers later questions from that memory.
 
-Everything runs on **your machine**. No cloud AI, no account, no data leaving
-your PC.
+Nothing leaves the machine unless you export it. Ollama is optional.
 
 ```
-Browser  →  Local Web App  →  Local Backend (FastAPI)  →  Ollama  →  Local SQLite
+Browser  →  FastAPI  →  SQLite
+                    ↘  Ollama (optional)
+                    ↘  deterministic fallback if Ollama is down
 ```
+
+Reliability over cleverness. The database is the source of truth. The graph
+visualizes the database. RAG never invents personal facts.
 
 ---
 
 ## How it works
 
-Every chat message flows through an automatic pipeline:
-
 ```
-message → memory-control command? → trivial-message filter → LLM extraction (or offline fallback)
-       → JSON validation → normalization → duplicate detection → conflict/supersession
-       → confidence check → SQLite → knowledge graph + timeline
+message → command? → trivial filter → extract (Ollama or rules)
+       → validate → normalize → duplicate merge → conflict/supersede
+       → confidence → SQLite → graph + timeline → search/RAG
 ```
 
-Key ideas:
-
-- **The LLM is replaceable.** Extraction uses `qwen3:0.6b` by default; flip to
-  `qwen3:1.7b` (or anything else) in **Settings** — or via environment
-  variables — without touching code.
-- **Semantic memory** uses `nomic-embed-text` embeddings for vector search.
-- **No Ollama? No problem.** The app auto-detects Ollama and otherwise falls
-  back to a built-in offline extractor, so it always works.
-- **Memory control** — you can steer memory in plain language:
-  *"Remember that I prefer Python."*, *"Forget that I am learning Rust."*,
-  *"Pin Nebula."*, *"Merge X with Y."*, *"Change my preferred language to Python."*
-- **No hallucination** — answers are classified **KNOWN / UNKNOWN / UNCERTAIN**.
-  If the brain doesn't know, it says so.
-- **Traceability** — every memory links back to its source message and
-  conversation, and shows a confidence score.
+- Default extraction model: `qwen3:0.6b` (small on purpose)
+- Default embeddings: `nomic-embed-text`
+- Both are configurable in Settings or `.env` — no code changes
+- LLM extraction is validated against the user's words, then merged with the
+  deterministic fallback. Unsupported personal facts are dropped.
+- Answers are **KNOWN / UNCERTAIN / UNKNOWN**
+- History is kept; superseded facts stay available but are not treated as current
 
 ---
 
@@ -47,122 +38,199 @@ Key ideas:
 
 | Tool | Version |
 |------|---------|
-| Python | 3.11+ |
-| Node.js | any recent (only needed if you hack on the frontend) |
-| Ollama | optional but recommended |
+| Python | 3.11+ (3.11.9 recommended) |
+| Ollama | optional |
+| Node.js | not required to run |
 
-Your hardware (RTX 4060 Ti 8GB / i7-12700F / 32GB) is more than enough. The app
-uses the smallest viable model on purpose and won't consume your whole GPU.
+Target hardware: Windows 11, i7-12700F, RTX 4060 Ti 8GB, 32GB RAM.
 
 ---
 
-## Quick start (Windows 11)
+## Windows 11 setup
 
-### 1. Install Ollama (recommended)
+### Option A — double-click `SecondBrain.exe`
 
-Download from <https://ollama.com>, then:
+Build on **Windows 11** from a Python 3.11 environment (PyInstaller cannot cross-compile a PE from Linux):
+
+```powershell
+python -m pip install -r requirements.txt
+python -m pip install pyinstaller
+python -m launcher.build_exe
+```
+
+That produces **`dist/SecondBrain.exe`** with the Second Brain icon
+(`launcher/secondbrain.ico`). Double-click it.
+
+First launch shows a dark setup window (version, current step, progress, log, Ollama status). It:
+
+- checks the packaged runtime
+- finds an existing `brain.db` next to the EXE (`dist\data\brain.db`) or under `%LOCALAPPDATA%\SecondBrain\data\brain.db`
+- creates that file only if none exists — it never deletes, resets, or replaces a brain
+- probes Ollama over HTTP (`qwen3:0.6b`, `nomic-embed-text`)
+- does **not** download models unless you set `SECOND_BRAIN_PULL_MODELS=1`
+- starts the **existing** FastAPI app and opens the browser
+
+If Ollama is down, the window says offline and the app uses the rule-based fallback. It does not crash.
+
+Later launches skip installs, skip model downloads, and reopen the same database. The setup window stays open with **Open browser** / **Hide to tray** / **Quit** so the server is not killed when the first-run checks finish.
+
+The optional tray does **not** watch your screen, windows, or typing. It only
+opens the app, quits, or (if you click it) remembers the current clipboard
+through the same chat extractor. Auto-capturing “what you are doing” every
+few minutes would store junk and secrets. That is intentionally not a feature.
+
+`start.py` remains the normal Python launcher. The EXE is an additional bootstrapper, not a second application.
+
+### Option B — Python launcher
+
+### 1. Optional: Ollama
+
+Install from https://ollama.com then:
 
 ```powershell
 ollama pull qwen3:0.6b
 ollama pull nomic-embed-text
 ```
 
-(For a more reliable extractor on harder text: `ollama pull qwen3:1.7b` and
-switch to it in Settings.)
+The app starts and works without this. Offline mode uses the rule-based extractor.
 
-### 2. Install Python dependencies
+### 2. First startup
 
 ```powershell
 cd second-brain
-python -m pip install -r backend/requirements.txt
+python start.py
 ```
 
-### 3. Run
+`start.py` is the only primary launcher. It:
+
+- requires Python 3.11+
+- creates `.venv` only if runtime imports are missing
+- installs **only** missing packages
+- never reinstalls on later runs
+- probes Ollama over HTTP (offline is valid)
+- binds `0.0.0.0:8000`
+
+Open **http://localhost:8000**.
+
+### 3. Subsequent startup
 
 ```powershell
-python run.py
+python start.py
 ```
 
-…or double-click `start.bat`. Open **http://localhost:8000**.
+No downloads. No reinstall.
 
-### 4. Run the tests
+### 4. Useful flags
+
+```powershell
+python start.py --check          # diagnose, do not start
+python start.py --check-only     # same
+python start.py --no-install     # fail if deps are missing
+python start.py --dev            # auto-reload
+python start.py --open           # open the local URL
+python start.py --host 0.0.0.0 --port 8000
+```
+
+Works from any working directory; paths are resolved from `start.py`.
+
+### 5. Tests
 
 ```powershell
 python -m pip install pytest httpx
-python -m pytest tests/ -q
+python test_overall.py
 ```
 
 ---
 
 ## Configuration
 
-Models and memory behavior are configured in **Settings** (persisted locally),
-or via environment variables / a `.env` file (copy `backend/.env.example` to
-`.env`):
+Copy `.env.example` to `.env`, or use Settings:
 
-```bash
-OLLAMA_MODEL=qwen3:0.6b        # extraction LLM (try qwen3:1.7b if flaky)
+```
+OLLAMA_MODEL=qwen3:0.6b
 EMBEDDING_MODEL=nomic-embed-text
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-Configurable at runtime (Settings UI):
-
-- LLM model, embedding model, Ollama URL
-- Extraction confidence threshold
-- Duplicate-merge similarity threshold
-- Auto-memory on/off
-
-No code changes required to swap models.
+Runtime Settings: models, Ollama URL (http/https only), confidence threshold,
+duplicate-merge threshold, auto-memory, automatic local backup interval, theme.
 
 ---
 
-## Features
+## Memory system
 
-- **Chat** — ChatGPT-style; messages are analyzed in the background, and you see
-  exactly what was remembered (with confidence) as clickable chips.
-- **Memory control** — remember / forget / edit / delete / merge / pin / mark
-  important / change confidence, all via natural-language commands or the UI.
-- **Knowledge Graph** — interactive Cytoscape graph: pan, zoom, search, click,
-  hover-highlight, filter by **type / relation / confidence / status / pinned /
-  important**, neighborhood expansion (depth), shortest-path, and graph
-  statistics. Pinned / important / superseded nodes are visually distinct.
-- **Multi-hop retrieval** — RAG traverses relevant graph paths (bounded BFS), so
-  *"What technology does the project I'm learning Rust for use?"* chains facts
-  instead of only matching one hop.
-- **Entity pages** — click any node for type, confidence, aliases, description,
-  relationships (with status + confidence), **current vs. superseded history**,
-  memory history, source conversation, embedding status, and timestamps.
-- **Memory Timeline** — chronological record with sources, filterable by kind,
-  entity, and date.
-- **Smart Search** — unified keyword + vector (semantic) + graph search with
-  grounded, source-attributed answers (KNOWN / UNKNOWN / UNCERTAIN). Results show
-  *why* they matched (keyword / semantic / graph / recency) and a clickable
-  "Sources used" list.
-- **Memory consolidation** — detects clusters of related memories and produces
-  entity summaries (deterministic; Ollama only to polish wording). Originals are
-  never deleted — summaries reference their source memories.
-- **Export / Import** — JSON and Markdown export; import with **merge** or
-  **replace** modes and full validation.
-- **Backup** — one-click local backups (SQLite copy + JSON + Markdown) with
-  status/location shown.
-- **Conversation memory** — short-term context is kept separate from long-term
-  memory; only durable facts become permanent.
-- **Memory decay / conflict detection** — "I stopped learning Rust" supersedes
-  the old fact (kept in history, not shown as active); conflicting preferences
-  are resolved, never silently duplicated.
-- **Dashboard** — entity/relationship/memory/conversation counts, 14-day memory
-  growth chart, memory-type breakdown, most-connected entities, recent changes.
-- **Privacy** — 100% local by default, clearly labelled.
+Greetings, thanks, and jokes are not stored.
+
+Durable statements become entities and relationships with confidence, source
+message, and timestamps. Duplicates merge. Exclusive facts (`prefers`,
+`lives_in`, `works_at`) supersede the previous active one. “I stopped …” and
+“I switched from X to Y” supersede the old fact. History remains.
+
+Commands (deterministic, always hit SQLite):
+
+Remember · Forget · Remove · Pin · Unpin · Important · Unimportant · Merge ·
+Rename · Change · Set confidence · Stop remembering · Undo last
+
+Undo last supersedes the relationships from the previous extract (stack of
+the last three). Entities stay. Say **Summarize this conversation** or click
+**Σ** on a chat: that writes a recap memory and never deletes the messages.
+
+The chat rail can search, pin, archive, summarize, and export conversations
+as Markdown. You can import a local `.txt` / `.md` / `.json` file you pick
+yourself. Entity aliases are editable. Unlinked entities and near-duplicates
+are listed so you can merge them — nothing auto-deletes.
+
+Forgetting a preference or a “learning X” fact **supersedes** it. It does not
+silently delete history.
 
 ---
 
-## Memory types
+## Search / RAG
 
-`person`, `project`, `technology`, `topic`, `skill`, `goal`, `interest`,
-`preference`, `fact`, `location`, `organization`, `concept`, `task`, `event`.
+Keyword + semantic + graph + recency + confidence + active/superseded + bounded
+multi-hop. Short names (`Go`, `C#`, `AI`) are searchable. Direct questions
+such as “Where do I live?”, “What technology does the game engine use?”,
+“Who uses Bevy?”, “When did I start learning Rust?”, “What did I stop?”,
+“What changed this week?”, “What do I know?”, and “How many projects do I have?”
+read the graph first. If there is no evidence, the answer is UNKNOWN. Ollama
+replies that invent names are dropped.
 
-When confidence is low, information is not forced into a specific category.
+---
+
+## Graph
+
+Cytoscape visualization of the real SQLite graph. Pan, zoom, search, type /
+relation / confidence / status / pinned / important filters, expand, focus,
+edit, delete, merge. Layouts: force, group-by-type, from-User. Relationship
+types can be edited on an entity. Isolated nodes can be hidden. No fabricated
+nodes. Brains larger than 40 entities default to **Around me** (User + 2 hops);
+Reset view loads the full graph. `#entity/12` and `#chat/3` survive refresh.
+The entity panel lists near-duplicates so you can merge them yourself.
+
+---
+
+## Backup / export / import
+
+- JSON + Markdown export
+- Merge import or replace import (replace requires `confirm=true`)
+- Merge import reports exclusive-fact conflicts and skipped relationships
+- User relationships are remapped
+- Local backups under `data/backups/` (SQLite + JSON + MD)
+- Optional automatic local backups (default every 24 hours; never deletes)
+- Secrets are not exported
+- Reset requires confirmation
+- Restore a named local backup (creates a safety snapshot first)
+- Paste notes (plain text / markdown paragraphs) to extract memories
+- User-picked local text/markdown/JSON file ingest (never scans your disk)
+- Conversation recap (Σ / “Summarize this conversation”) — originals stay
+- Undo stack of the last three extracts (supersede, never wipe the brain)
+
+---
+
+## Privacy
+
+Local-first. No telemetry. No cloud accounts. The only optional network call is
+the Ollama URL you configure.
 
 ---
 
@@ -170,33 +238,29 @@ When confidence is low, information is not forced into a specific category.
 
 ```
 second-brain/
-├── run.py                 # starts the server (http://localhost:8000)
-├── start.bat              # Windows launcher
+├── start.py               # primary Python launcher
+├── launcher/              # EXE bootstrapper + setup GUI (not a second app)
+├── secondbrain.spec       # PyInstaller spec → dist/SecondBrain.exe
+├── test_overall.py
+├── requirements.txt
+├── README.md
+├── ROADMAP
+├── projekt.md             # full first-party source archive
+├── .env.example
+├── .gitignore
 ├── backend/
-│   ├── app.py             # FastAPI routes + serves the UI
-│   ├── config.py          # env/config, entity & relation taxonomies
-│   ├── db.py              # SQLite schema (versioned migrations) + access
-│   ├── ollama.py          # Ollama client (LLM + embeddings)
-│   ├── fallback.py        # offline rule-based extractor + hashed embeddings
-│   ├── extract.py         # extraction pipeline (LLM prompt + normalization)
-│   ├── commands.py        # natural-language memory control
-│   ├── store.py           # entities / relationships / merging / supersession
-│   ├── search.py          # hybrid search + grounded RAG answers
-│   └── requirements.txt
 ├── frontend/
-│   ├── index.html / style.css / app.js   # no build step
-│   └── vendor/cytoscape.min.js           # bundled graph library
-├── tests/                 # pytest suite (142 tests, incl. Playwright browser tests)
-└── data/brain.db          # your knowledge (created at first run)
+├── tests/
+└── data/brain.db          # created on first run; never deleted by the EXE
 ```
 
-Backend modules:
+---
 
-- `graph.py` — bounded graph traversal, filtering, neighborhood, shortest path,
-  statistics, and multi-hop retrieval.
-- `export.py` — JSON/Markdown export + validated merge/replace import.
-- `backup.py` — local backups (SQLite online-backup + JSON + Markdown).
-- `summarize.py` — memory consolidation (deterministic, originals preserved).
+## Limitations
 
-The frontend is plain HTML/CSS/JS served directly by FastAPI — there is no
-`npm install` or build step required to run it.
+- Single-user, local only
+- Offline extractor is intentionally small; hard phrasing is better with Ollama
+- SSE chat extracts first, then streams the reply token-by-token when Ollama is up
+- Playwright browser tests skip if Chromium is not installed
+- Learning several things at once is allowed unless you stop or switch
+- `SecondBrain.exe` must be built on Windows (PyInstaller does not cross-compile a PE from Linux)

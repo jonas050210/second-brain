@@ -15,6 +15,11 @@ venv/
 .playwright/
 node_modules/
 
+# Packaged launcher
+build/
+dist/
+*.spec.bak
+
 # OS / editor
 .DS_Store
 Thumbs.db

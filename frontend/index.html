@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Second Brain — Local AI Knowledge Graph</title>
+  <link rel="icon" href="/favicon.png" type="image/png" />
   <link rel="stylesheet" href="style.css" />
   <script src="vendor/cytoscape.min.js"></script>
 </head>
@@ -35,6 +36,9 @@
         <button class="nav-item" data-view="graph">
           <span class="nav-ico">◉</span> Knowledge Graph
         </button>
+        <button class="nav-item" data-view="browse">
+          <span class="nav-ico">▤</span> Entities
+        </button>
         <button class="nav-item" data-view="memory">
           <span class="nav-ico">🕘</span> Memory
         </button>
@@ -64,6 +68,9 @@
           <h1>Dashboard</h1>
           <p class="view-sub">Your knowledge, growing itself.</p>
         </header>
+        <div class="demo-banner" id="demo-banner" style="display:none">
+          This database contains <strong>DEMO</strong> data. It is marked separately from your real memories.
+        </div>
         <div class="stats-grid" id="stats-grid"></div>
 
         <div class="dash-cols">
@@ -99,9 +106,20 @@
             <p class="view-sub">Just talk to it — your knowledge graph builds itself.</p>
           </div>
           <div class="graph-tools">
+            <button class="btn-ghost" id="chat-undo" title="Undo last extract — history stays">Undo last</button>
             <button class="btn-ghost" id="chat-new">New conversation</button>
           </div>
         </header>
+        <div class="chat-layout">
+          <aside class="conv-rail">
+            <div class="conv-rail-head">Conversations</div>
+            <input id="conv-search" class="input" type="search" placeholder="Search chats…" autocomplete="off" />
+            <label class="toggle small">
+              <input type="checkbox" id="conv-archived" />
+              <span>Archived</span>
+            </label>
+            <div id="conv-list" class="conv-list"></div>
+          </aside>
         <div class="chat-wrap">
           <div class="chat-scroll" id="chat-scroll">
             <div class="chat-empty" id="chat-empty">
@@ -115,6 +133,7 @@
             <textarea id="chat-input" rows="1" placeholder="Talk to your Second Brain…"></textarea>
             <button id="chat-send" class="btn-primary">Send</button>
           </div>
+        </div>
         </div>
       </section>
 
@@ -149,12 +168,73 @@
             <input type="checkbox" id="gf-important" />
             <span>Important only</span>
           </label>
+          <label class="field compact">
+            <span>Min confidence <span id="gf-conf-val">0</span></span>
+            <input id="gf-confidence" class="input range" type="range" min="0" max="1" step="0.05" value="0" />
+          </label>
+          <select id="gf-layout" class="input" title="Graph layout">
+            <option value="cose">Force layout</option>
+            <option value="concentric">Group by type</option>
+            <option value="breadthfirst">From User</option>
+          </select>
+          <label class="toggle small">
+            <input type="checkbox" id="gf-connected" />
+            <span>Connected only</span>
+          </label>
+          <label class="toggle small">
+            <input type="checkbox" id="gf-around-me" />
+            <span>Around me</span>
+          </label>
           <button class="btn-ghost" id="graph-apply">Apply filters</button>
         </div>
         <div class="graph-layout">
           <div class="graph-legend" id="graph-legend"></div>
+          <div class="graph-zoom">
+            <button class="btn-ghost" id="graph-zoom-in" title="Zoom in">+</button>
+            <button class="btn-ghost" id="graph-zoom-out" title="Zoom out">−</button>
+            <button class="btn-ghost" id="graph-fit" title="Fit">Fit</button>
+            <button class="btn-ghost" id="graph-expand" title="Expand neighborhood">Expand</button>
+            <button class="btn-ghost" id="graph-path" title="Path between last two nodes">Path</button>
+            <button class="btn-ghost" id="graph-to-me" title="Path from User to the selected node">To me</button>
+          </div>
           <div id="cy"></div>
         </div>
+      </section>
+
+      <!-- ============ ENTITIES ============ -->
+      <section class="view" id="view-browse">
+        <header class="view-head">
+          <div>
+            <h1>Entities</h1>
+            <p class="view-sub">Browse the real SQLite graph — nothing fabricated.</p>
+          </div>
+        </header>
+        <div class="filter-bar">
+          <input id="browse-q" class="input" type="text" placeholder="Filter by name…" />
+          <select id="browse-type" class="input">
+            <option value="">All types</option>
+          </select>
+          <label class="toggle small">
+            <input type="checkbox" id="browse-pinned" />
+            <span>Pinned</span>
+          </label>
+          <label class="toggle small">
+            <input type="checkbox" id="browse-important" />
+            <span>Important</span>
+          </label>
+          <select id="browse-sort" class="input" title="Sort entities">
+            <option value="name">Name</option>
+            <option value="degree">Most linked</option>
+            <option value="recent">Recently updated</option>
+            <option value="confidence">Confidence</option>
+          </select>
+          <label class="toggle small">
+            <input type="checkbox" id="browse-orphans" />
+            <span>Unlinked only</span>
+          </label>
+          <button class="btn-ghost" id="browse-dupes">Find duplicates</button>
+        </div>
+        <div id="browse-list" class="browse-list"></div>
       </section>
 
       <!-- ============ MEMORY ============ -->
@@ -174,8 +254,10 @@
             <option value="superseded">Superseded</option>
             <option value="conflict">Conflicts</option>
             <option value="command">Commands</option>
+            <option value="summary">Summaries</option>
           </select>
           <input id="mem-entity" class="input" type="text" placeholder="Filter by entity…" />
+          <input id="mem-q" class="input" type="search" placeholder="Search memory text…" />
           <input id="mem-date" class="input" type="date" />
           <button class="btn-ghost" id="mem-clear">Clear</button>
         </div>
@@ -215,6 +297,11 @@
             <input type="checkbox" id="sf-important" />
             <span>Important</span>
           </label>
+          <input id="sf-from" class="input" type="date" title="From date" />
+          <input id="sf-to" class="input" type="date" title="To date" />
+          <select id="sf-source" class="input">
+            <option value="">Any source</option>
+          </select>
         </div>
         <div id="search-answer" class="panel search-answer" style="display:none"></div>
         <div id="search-sources" class="panel" style="display:none"></div>
@@ -265,8 +352,30 @@
               <input type="checkbox" id="set-auto-memory" />
               <span>Auto-memory <span class="muted">(extract knowledge from messages automatically)</span></span>
             </label>
+            <label class="field">
+              <span>Automatic local backup</span>
+              <select id="set-auto-backup" class="input">
+                <option value="0">Off</option>
+                <option value="6">Every 6 hours</option>
+                <option value="12">Every 12 hours</option>
+                <option value="24">Every 24 hours</option>
+                <option value="48">Every 48 hours</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Theme</span>
+              <select id="set-theme" class="input">
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+              </select>
+            </label>
             <button class="btn-primary" id="set-behavior-save">Save behavior</button>
           </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Privacy</h2></div>
+          <div class="panel-body" id="privacy-info"></div>
         </div>
 
         <div class="panel">
@@ -281,6 +390,7 @@
             <div style="display:flex; gap:8px; flex-wrap:wrap">
               <button class="btn-danger" id="reset-btn">Reset all data</button>
               <button class="btn-ghost" id="demo-btn">Load demo data</button>
+              <button class="btn-ghost" id="demo-clear-btn">Clear demo data</button>
             </div>
           </div>
         </div>
@@ -315,6 +425,15 @@
               <button class="btn-danger" id="import-replace">Replace database</button>
             </div>
             <p class="hint" id="import-status"></p>
+            <label class="field">
+              <span>Import notes <span class="muted">(plain text / markdown paragraphs)</span></span>
+              <textarea class="input" id="import-notes" rows="3" placeholder="Paste notes. Each paragraph is extracted into memory."></textarea>
+            </label>
+            <button class="btn-primary" id="import-notes-btn">Import notes</button>
+            <label class="field">
+              <span>Import a local file <span class="muted">(.txt / .md / .json — you pick it)</span></span>
+              <input class="input" id="import-file" type="file" accept=".txt,.md,.markdown,.json,text/plain,application/json" />
+            </label>
           </div>
         </div>
 
@@ -323,6 +442,7 @@
           <div class="panel-body form">
             <button class="btn-primary" id="backup-now">Create backup</button>
             <p class="hint" id="backup-status"></p>
+            <div id="backup-list"></div>
           </div>
         </div>
       </section>
@@ -334,6 +454,13 @@
   <aside class="entity-panel" id="entity-panel">
     <div class="entity-inner" id="entity-inner"></div>
   </aside>
+
+  <!-- Command palette -->
+  <div class="overlay" id="palette-overlay"></div>
+  <div class="palette" id="palette" hidden>
+    <input id="palette-input" class="input input-lg" type="text" placeholder="Jump to a view or entity…  Ctrl+K" />
+    <div id="palette-results" class="palette-results"></div>
+  </div>
 
   <!-- Toast -->
   <div class="toast" id="toast"></div>

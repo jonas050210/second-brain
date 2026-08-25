@@ -85,6 +85,23 @@ def test_backup_endpoint(client):
     assert r.json()["ok"] is True
     s = client.get("/api/backup/status").json()
     assert s["count"] >= 1
+    listed = client.get("/api/backups").json()
+    assert isinstance(listed, list) and listed
+
+
+def test_backup_restore_endpoint(client):
+    client.post("/api/chat", json={"content": "I am learning Python"})
+    created = client.post("/api/backup").json()
+    name = created["path"].rstrip("/").split("/")[-1]
+    client.post("/api/reset", json={"confirm": True})
+    assert not any(e["name"] == "Python" for e in client.get("/api/entities").json())
+    bad = client.post("/api/backup/restore", json={"name": name, "confirm": False})
+    assert bad.status_code == 400
+    traversal = client.post("/api/backup/restore", json={"name": "../etc", "confirm": True})
+    assert traversal.status_code == 400
+    ok = client.post("/api/backup/restore", json={"name": name, "confirm": True})
+    assert ok.status_code == 200
+    assert any(e["name"] == "Python" for e in client.get("/api/entities").json())
 
 
 def test_summarize_candidates_endpoint(client):
@@ -109,6 +126,39 @@ def test_search_returns_sources_and_reasons(client):
     body = r.json()
     assert "sources" in body
     assert "reasons" in body["entities"][0]
+
+
+def test_facts_endpoint(client):
+    _seed(client)
+    r = client.get("/api/facts")
+    assert r.status_code == 200
+    assert any("Rust" in f["text"] or "Bevy" in f["text"] for f in r.json())
+
+
+def test_conversation_rename_and_delete(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    cid = client.get("/api/conversations").json()[0]["id"]
+    r = client.patch(f"/api/conversations/{cid}", json={"title": "Rust notes"})
+    assert r.status_code == 200
+    titles = [c["title"] for c in client.get("/api/conversations").json()]
+    assert "Rust notes" in titles
+    client.delete(f"/api/conversations/{cid}")
+    ids = [c["id"] for c in client.get("/api/conversations").json()]
+    assert cid not in ids
+
+
+def test_privacy_in_settings(client):
+    s = client.get("/api/settings").json()
+    assert s["privacy"]["telemetry"] is False
+    assert s["privacy"]["mode"] == "local-first"
+
+
+def test_chat_stream(client):
+    with client.stream("POST", "/api/chat/stream",
+                       json={"content": "I am learning Python"}) as res:
+        assert res.status_code == 200
+        text = b"".join(res.iter_bytes()).decode()
+    assert "event: done" in text
 
 
 def test_entity_history_endpoint(client):

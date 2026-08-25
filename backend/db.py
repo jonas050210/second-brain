@@ -17,7 +17,7 @@ from . import config
 
 _write_lock = threading.Lock()
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS entities (
@@ -59,7 +59,9 @@ CREATE TABLE IF NOT EXISTS conversations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     title       TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
+    updated_at  TEXT NOT NULL,
+    pinned      INTEGER NOT NULL DEFAULT 0,
+    archived    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -107,6 +109,10 @@ MIGRATIONS = {
     3: [
         ("memories", "meta", "TEXT NOT NULL DEFAULT '{}'"),
     ],
+    4: [
+        ("conversations", "pinned", "INTEGER NOT NULL DEFAULT 0"),
+        ("conversations", "archived", "INTEGER NOT NULL DEFAULT 0"),
+    ],
 }
 
 
@@ -115,7 +121,9 @@ def utcnow():
 
 
 def _connect():
-    os.makedirs(os.path.dirname(config.DB_PATH), exist_ok=True)
+    parent = os.path.dirname(os.path.abspath(config.DB_PATH))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     conn = sqlite3.connect(config.DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -216,3 +224,14 @@ def all_settings():
         except (ValueError, TypeError):
             out[r["key"]] = r["value"]
     return out
+
+
+def integrity_ok():
+    """True when SQLite reports a healthy file. Never deletes or rebuilds the DB."""
+    try:
+        row = query_one("PRAGMA integrity_check")
+        if not row:
+            return False
+        return str(next(iter(row.values()))).lower() == "ok"
+    except Exception:
+        return False

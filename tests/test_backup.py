@@ -1,7 +1,7 @@
 """Tests for the local backup mechanism."""
 import os
 
-from backend import backup, config, extract
+from backend import backup, config, extract, store
 
 
 def test_create_backup():
@@ -19,6 +19,8 @@ def test_backup_list_and_status():
     assert status["count"] >= 1
     assert status["latest"] is not None
     assert status["backup_dir"] == backup.backup_dir()
+    assert status["latest"].get("bytes", 0) > 0
+    assert status["latest"].get("has_db") is True
 
 
 def test_backup_contains_real_data():
@@ -30,6 +32,59 @@ def test_backup_contains_real_data():
     n = conn.execute("SELECT COUNT(*) FROM entities WHERE norm_name='python'").fetchone()[0]
     conn.close()
     assert n == 1
+
+
+def test_restore_requires_confirmation():
+    extract.extract("I am learning Python.")
+    created = backup.create_backup()
+    name = os.path.basename(created["path"])
+    r = backup.restore_backup(name, confirm=False)
+    assert r["ok"] is False
+    assert "confirm" in r["error"]
+
+
+def test_restore_rejects_path_traversal():
+    r = backup.restore_backup("../etc", confirm=True)
+    assert r["ok"] is False
+    r2 = backup.restore_backup("backup-../../../tmp", confirm=True)
+    assert r2["ok"] is False
+
+
+def test_restore_roundtrip_preserves_memories():
+    extract.extract("I am learning Python.")
+    assert store.find_entity_by_name("Python") is not None
+    created = backup.create_backup()
+    name = os.path.basename(created["path"])
+    store.delete_entity(store.find_entity_by_name("Python")["id"])
+    assert store.find_entity_by_name("Python") is None
+    r = backup.restore_backup(name, confirm=True)
+    assert r["ok"] is True
+    assert r["safety_copy"]
+    assert os.path.isdir(r["safety_copy"])
+    assert store.find_entity_by_name("Python") is not None
+
+
+def test_health_does_not_create_backup():
+    from fastapi.testclient import TestClient
+    from backend import app as app_module
+    extract.extract("I am learning Python.")
+    before = backup.backup_status()["count"]
+    client = TestClient(app_module.app)
+    h = client.get("/api/health").json()
+    assert h["ok"] is True
+    assert "auto_backup" in h
+    assert h["auto_backup"].get("count") == before
+    assert backup.backup_status()["count"] == before
+
+
+def test_maybe_auto_backup_skips_empty_and_fresh():
+    r = backup.maybe_auto_backup()
+    assert r.get("skipped") is True
+    extract.extract("I am learning Python.")
+    first = backup.maybe_auto_backup()
+    assert first.get("ok") is True
+    again = backup.maybe_auto_backup()
+    assert again.get("skipped") is True
 
 
 def test_no_secrets_in_backup():

@@ -93,6 +93,16 @@ def test_supersede_relations_of_type():
     assert py in changed and rs not in changed
 
 
+def test_update_relationship_changes_status_and_confidence():
+    a = store.create_entity("X", "concept")
+    b = store.create_entity("Y", "concept")
+    rid = store.add_relationship(a, b, "related_to", confidence=0.5)
+    assert store.update_relationship(rid, confidence=0.33, status="superseded")
+    row = store.relationship_row(rid)
+    assert abs(row["confidence"] - 0.33) < 1e-6
+    assert row["status"] == "superseded"
+
+
 def test_delete_entity_cascades():
     a = store.create_entity("X", "concept")
     b = store.create_entity("Y", "concept")
@@ -146,6 +156,27 @@ def test_persistence_across_reopen():
 def test_user_entity_protected():
     uid = store.ensure_user_entity()
     assert store.entity_row(uid)["norm_name"] == "user"
+
+
+def test_integrity_ok_on_healthy_db():
+    assert db.integrity_ok() is True
+
+
+def test_similar_entities_by_embedding():
+    a = store.create_entity(
+        "Alpha", "concept", embedding=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+    )
+    b = store.create_entity(
+        "AlphaPrime", "concept",
+        embedding=np.array([0.97, 0.05, 0.0], dtype=np.float32),
+    )
+    store.create_entity(
+        "Unrelated", "concept", embedding=np.array([0.0, 1.0, 0.0], dtype=np.float32),
+    )
+    hits = store.similar_entities(a)
+    ids = {h["id"] for h in hits}
+    assert b in ids
+    assert all(h["score"] >= 0.78 for h in hits)
 
 
 def test_merge_preserves_description():

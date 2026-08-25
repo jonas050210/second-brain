@@ -75,8 +75,7 @@ def summarize_entity(entity_id, memory_ids=None):
         target = next((c for c in cands if c["entity_id"] == entity_id), None)
         memory_ids = target["memory_ids"] if target else []
 
-    mems = [store.message_by_id if False else db.query_one("SELECT * FROM memories WHERE id=?", (mid,))
-            for mid in memory_ids]
+    mems = [db.query_one("SELECT * FROM memories WHERE id=?", (mid,)) for mid in memory_ids]
     mems = [m for m in mems if m]
 
     facts = store_relationships_readable(entity_id)
@@ -92,7 +91,7 @@ def summarize_entity(entity_id, memory_ids=None):
 
     text = " ".join(parts)
 
-    # Optionally polish wording with Ollama (only when useful).
+    # Optionally polish wording with Ollama (only when useful and grounded).
     if ollama.available():
         try:
             prompt = (
@@ -104,7 +103,7 @@ def summarize_entity(entity_id, memory_ids=None):
                 [{"role": "system", "content": "You summarize personal memories factually."},
                  {"role": "user", "content": prompt}],
                 temperature=0.3).strip()
-            if polished:
+            if polished and _summary_is_grounded(polished, ent, facts, mems):
                 text = polished
         except Exception:
             pass
@@ -134,6 +133,66 @@ def store_relationships_readable(entity_id):
         else:
             out.append(f'{r["tname"]} {r["rel"]} {r["sname"]}')
     return out
+
+
+def _summary_is_grounded(text, ent, facts, mems=None):
+    """False if the polish invents a stored entity name not in this summary."""
+    from . import search
+    allowed_facts = list(facts or [])
+    for m in mems or []:
+        if m.get("text"):
+            allowed_facts.append(m["text"])
+    res = {
+        "entities": [{"name": (ent or {}).get("name") or ""}],
+        "facts": [{"text": t} for t in allowed_facts],
+    }
+    return search.reply_is_grounded(text, res, (ent or {}).get("name") or "")
+
+
+def summarize_conversation(cid):
+    """Write a recap memory for one chat. Never deletes messages."""
+    conv = store.conversation_row(cid)
+    if not conv:
+        return {"ok": False, "error": "conversation not found"}
+    msgs = store.conversation_messages(cid)
+    user_msgs = [m for m in msgs if m.get("role") == "user" and (m.get("content") or "").strip()]
+    if not user_msgs:
+        return {"ok": False, "error": "empty conversation"}
+    mids = [m["id"] for m in msgs if m.get("id") is not None]
+    facts, eids = [], []
+    if mids:
+        placeholders = ",".join("?" for _ in mids)
+        rels = db.query(
+            "SELECT s.name sname, t.name tname, r.relation rel, r.source_id sid, r.target_id tid "
+            "FROM relationships r JOIN entities s ON s.id=r.source_id "
+            "JOIN entities t ON t.id=r.target_id "
+            f"WHERE r.source_message_id IN ({placeholders}) AND r.status='active'",
+            tuple(mids),
+        )
+        for r in rels:
+            facts.append(f'{r["sname"]} {r["rel"]} {r["tname"]}')
+            eids.extend([r["sid"], r["tid"]])
+    title = conv.get("title") or "untitled"
+    turns = len(user_msgs)
+    parts = [f'Conversation “{title}” ({turns} user turn{"s" if turns != 1 else ""}).']
+    if facts:
+        parts.append("Stored facts: " + "; ".join(facts[:12]) + ".")
+    else:
+        parts.append("No durable facts were stored from this conversation.")
+    text = " ".join(parts)
+    unique_eids = list(dict.fromkeys(eids))[:20]
+    summary_id = store.add_memory(
+        "summary", text, entity_ids=unique_eids, confidence=0.85,
+        meta={"conversation_id": cid, "source_message_ids": mids[:80]},
+    )
+    return {
+        "ok": True,
+        "summary_id": summary_id,
+        "text": text,
+        "conversation_id": cid,
+        "facts": facts[:12],
+        "messages_kept": len(msgs),
+    }
 
 
 def summarize_all(limit=10):

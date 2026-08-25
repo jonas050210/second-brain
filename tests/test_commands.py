@@ -7,6 +7,23 @@ def test_remember_command_recognized():
     assert commands.is_command("Forget that I am learning Rust.")
     assert commands.is_command("Pin Nebula")
     assert not commands.is_command("I am learning Python.")
+    assert not commands.is_command("Remember when I started Python")
+    assert not commands.is_command("Delete this later")
+    assert not commands.is_command("Change my mind about Rust")
+    assert commands.is_command("Can you forget Rust")
+    assert not commands.is_command("I forgot my keys at the office")
+    assert not commands.is_command("Please remind me to learn Rust")
+    assert not commands.is_command("We should remember this for later")
+    assert not commands.is_command("Important meeting tomorrow")
+    assert not commands.is_command("I remember living in Berlin")
+    assert not commands.is_command("This is important to me")
+    assert commands.is_command("Important Rust")
+    assert commands.is_command("Unimportant Rust")
+    assert commands.is_command("Undo last")
+    assert commands.is_command("scratch that")
+    assert commands.is_command("Summarize this conversation")
+    assert not commands.is_command("summarize my brain")
+    assert not commands.is_command("that was wrong of me to skip Rust")
 
 
 def test_forget_supersedes_learning():
@@ -89,3 +106,86 @@ def test_set_confidence_command():
 
 def test_unknown_command_returns_none():
     assert commands.handle_command("I like to code") is None
+
+
+def test_remember_without_that_is_remember_action():
+    r = commands.handle_command("Remember I prefer Python")
+    assert r is not None
+    assert r.get("action") == "remember"
+    assert "prefer Python" in r["payload"]
+
+
+def test_important_command():
+    e = store.create_entity("Rust", "technology")
+    r = commands.handle_command("Important Rust")
+    assert r["ok"] is True
+    assert store.entity_row(e)["important"] == 1
+
+
+def test_unimportant_command():
+    e = store.create_entity("Rust", "technology")
+    store.update_entity(e, important=1)
+    r = commands.handle_command("Unimportant Rust")
+    assert r["ok"] is True
+    assert store.entity_row(e)["important"] == 0
+
+
+def test_forget_prefer_supersedes_not_deletes():
+    uid = store.ensure_user_entity()
+    dark = store.create_entity("Dark Mode", "preference")
+    store.add_relationship(uid, dark, "prefers")
+    r = commands.handle_command("Forget that I prefer dark mode.")
+    assert r["ok"] is True
+    assert store.entity_row(dark) is not None
+    rels = db.query("SELECT * FROM relationships WHERE source_id=? AND target_id=? AND relation='prefers'",
+                    (uid, dark))
+    assert rels and rels[0]["status"] == "superseded"
+
+
+def test_forget_live_in_supersedes():
+    uid = store.ensure_user_entity()
+    berlin = store.create_entity("Berlin", "location")
+    store.add_relationship(uid, berlin, "lives_in")
+    r = commands.handle_command("Forget that I live in Berlin.")
+    assert r["ok"] is True
+    rels = db.query(
+        "SELECT * FROM relationships WHERE source_id=? AND target_id=? AND relation='lives_in'",
+        (uid, berlin),
+    )
+    assert rels and rels[0]["status"] == "superseded"
+    assert store.entity_row(berlin) is not None
+
+
+def test_undo_last_command():
+    from backend import extract
+    extract.extract("I am learning Go")
+    # Simulate the chat recorder.
+    store.record_last_extract({
+        "cid": 1,
+        "msg_id": None,
+        "extract": {
+            "entities": [],
+            "relationships": [{
+                "source": store.ensure_user_entity(),
+                "target": store.find_entity_by_name("Go")["id"],
+                "relation": "learning",
+                "new": True,
+            }],
+        },
+    })
+    r = commands.handle_command("Undo last")
+    assert r["ok"] is True
+    uid = store.ensure_user_entity()
+    go = store.find_entity_by_name("Go")
+    rels = db.query(
+        "SELECT * FROM relationships WHERE source_id=? AND target_id=? AND relation='learning'",
+        (uid, go["id"]),
+    )
+    assert rels and rels[0]["status"] == "superseded"
+
+
+def test_stop_remembering_forgets_entity():
+    e = store.create_entity("OldFact", "concept")
+    r = commands.handle_command("Stop remembering OldFact")
+    assert r["ok"] is True
+    assert store.entity_row(e) is None

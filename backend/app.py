@@ -9,19 +9,45 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException
+from urllib.parse import urlparse
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+MAX_IMPORT_BYTES = 8 * 1024 * 1024
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "connect-src 'self'; object-src 'none'; base-uri 'self'; "
+        "frame-ancestors 'self'"
+    ),
+}
+
 from . import backup, commands, config, db, export, extract, ollama, search, store, summarize
 from . import graph as graph_engine
+from .paths import APP_VERSION
 
-app = FastAPI(title="Second Brain", version="2.0.0")
+app = FastAPI(title="Second Brain", version=APP_VERSION)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for key, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(key, value)
+    return response
 
 db.init_db()
 store.ensure_user_entity()
@@ -59,38 +85,68 @@ def smalltalk_reply(text):
     return SMALLTALK.get(text.strip().lower().strip(".,!? "))
 
 
-def natural_reply(text, remembered, used_fallback):
-    """A short, grounded acknowledgment (never chain-of-thought)."""
-    if ollama.available():
-        lines = []
-        for r in remembered:
-            if r["kind"] == "entity":
-                lines.append(f'- new {r["type"]}: {r["name"]}')
-            else:
-                lines.append(f'- {r["source"]} {r["relation"]} {r["target"]}')
-        summary = "\n".join(lines) if lines else "(nothing durable)"
-        prompt = (
-            "You are a friendly personal Second Brain. The user said: "
-            f"\"{text}\"\nYou extracted these memories:\n{summary}\n\n"
-            "Acknowledge naturally in one or two short sentences and confirm "
-            "what you will remember. Do NOT invent anything beyond the list. "
-            "Do NOT reveal internal reasoning or say 'chain of thought'."
-        )
-        try:
-            return ollama.chat(effective_llm_model(), [
-                {"role": "system", "content": "You are a concise, friendly personal knowledge assistant."},
-                {"role": "user", "content": prompt},
-            ], temperature=0.3).strip()
-        except Exception:
-            pass
+def _natural_reply_fallback(remembered, used_fallback):
     if not remembered:
         return ("I heard you, but I didn't find anything durable to save yet. "
                 "Try telling me about a project, a technology, or a goal.")
-    n = len(remembered)
-    head = "Got it — I've updated your brain." if n else "Understood."
+    head = "Got it — I've updated your brain."
     if used_fallback:
         head += " (offline mode)"
     return head
+
+
+def _natural_reply_messages(text, remembered):
+    lines = []
+    for r in remembered:
+        if r["kind"] == "entity":
+            lines.append(f'- new {r["type"]}: {r["name"]}')
+        else:
+            lines.append(f'- {r["source"]} {r["relation"]} {r["target"]}')
+    summary = "\n".join(lines) if lines else "(nothing durable)"
+    prompt = (
+        "You are a friendly personal Second Brain. The user said: "
+        f"\"{text}\"\nYou extracted these memories:\n{summary}\n\n"
+        "Acknowledge naturally in one or two short sentences and confirm "
+        "what you will remember. Do NOT invent anything beyond the list. "
+        "Do NOT reveal internal reasoning or say 'chain of thought'."
+    )
+    return [
+        {"role": "system", "content": "You are a concise, friendly personal knowledge assistant."},
+        {"role": "user", "content": prompt},
+    ]
+
+
+def natural_reply(text, remembered, used_fallback):
+    """A short, grounded acknowledgment (never chain-of-thought)."""
+    if ollama.available():
+        try:
+            text_out = ollama.chat(
+                effective_llm_model(), _natural_reply_messages(text, remembered),
+                temperature=0.3,
+            ).strip()
+            if text_out:
+                return text_out
+        except Exception:
+            pass
+    return _natural_reply_fallback(remembered, used_fallback)
+
+
+def natural_reply_stream(text, remembered, used_fallback):
+    if ollama.available():
+        try:
+            acc = []
+            for piece in ollama.chat_stream(
+                effective_llm_model(), _natural_reply_messages(text, remembered),
+                temperature=0.3,
+            ):
+                if piece:
+                    acc.append(piece)
+                    yield piece
+            if "".join(acc).strip():
+                return
+        except Exception:
+            pass
+    yield _natural_reply_fallback(remembered, used_fallback)
 
 
 def build_updates(result):
@@ -111,7 +167,19 @@ def health():
         "embedding_model": effective_embedding_model(),
         "db_path": config.DB_PATH,
         "models_installed": ollama.list_models(),
+        "version": APP_VERSION,
+        "db_ok": db.integrity_ok(),
+        "auto_backup": backup.auto_backup_status(),
+        "undo_available": store.undo_available(),
     }
+
+
+def _safe_auto_backup():
+    """Create a backup only after a memory write. Never called from health."""
+    try:
+        return backup.maybe_auto_backup()
+    except Exception as exc:
+        return {"ok": False, "skipped": True, "reason": f"error: {exc}"}
 
 
 @app.get("/api/models")
@@ -134,94 +202,198 @@ class ChatIn(BaseModel):
 
 @app.post("/api/chat")
 def chat(body: ChatIn):
-    content = body.content.strip()
-    if not content:
-        return {"reply": "", "remembered": [], "trivial": True}
+    turn = prepare_turn(body.content, body.conversation_id)
+    reply = "".join(render_reply(turn))
+    return finalize_turn(turn, reply)
 
-    cid = body.conversation_id or store.current_conversation_id()
+
+def prepare_turn(content, conversation_id=None):
+    """Persist the user turn and run extraction / retrieval. No assistant text yet."""
+    content = (content or "").strip()
+    turn = {
+        "kind": "empty",
+        "cid": None,
+        "content": content,
+        "ready_reply": "",
+        "remembered": [],
+        "updates": [],
+        "superseded": [],
+        "used_fallback": False,
+        "trivial": False,
+        "is_command": False,
+        "is_answer": False,
+        "ok": True,
+        "status": "",
+        "sources": [],
+        "extract": None,
+        "retrieval": None,
+        "context": "",
+        "original": content,
+    }
+    if not content:
+        turn["trivial"] = True
+        return turn
+    if len(content) > config.MAX_CHAT_CHARS:
+        content = content[:config.MAX_CHAT_CHARS]
+        turn["content"] = content
+        turn["original"] = content
+
+    cid = conversation_id or store.current_conversation_id()
+    turn["cid"] = cid
     msg_id = store.add_message("user", content, conversation_id=cid,
                                embedding=store.embed_text(content))
-    base = {"conversation_id": cid}
+    turn["msg_id"] = msg_id
 
-    # Title the conversation with its first user message.
     conv = store.conversation_row(cid)
     if conv and not conv["title"]:
         store.touch_conversation(cid, title=content[:60])
 
-    # Build short-term conversation context (separate from long-term memory).
     context = [m for m in store.conversation_messages(cid, config.SHORT_TERM_CONTEXT_TURNS)]
 
-    # 1. Explicit memory-control commands.
     cmd = commands.handle_command(content) if commands.is_command(content) else None
     if cmd and "action" not in cmd:
-        reply = cmd.get("reply", "Done.")
-        store.add_message("assistant", reply, conversation_id=cid,
-                          meta={"kind": "command"})
-        return {"reply": reply, "remembered": [], "updates": [],
-                "is_command": True, "ok": cmd.get("ok", True), "trivial": False, **base}
+        turn["kind"] = "command"
+        turn["ready_reply"] = cmd.get("reply", "Done.")
+        turn["is_command"] = True
+        turn["ok"] = cmd.get("ok", True)
+        return turn
 
-    # "remember that X" -> force extraction of the payload.
     if cmd and cmd.get("action") == "remember":
-        payload = cmd["payload"]
-        return _extract_and_reply(payload, cid, msg_id, force=True, original=content)
+        content = cmd["payload"]
+        turn["content"] = content
 
-    # 2. Questions -> grounded RAG over memory.
-    if search.is_question(content) and not smalltalk_reply(content):
-        # Recent conversation turns (short-term context) augment long-term memory.
+    if search.is_question(turn["original"]) and not smalltalk_reply(turn["original"]) \
+            and not (cmd and cmd.get("action") == "remember"):
         recent = [m["content"] for m in context if m["role"] == "user"][-4:]
-        res = search.answer(content, model=effective_llm_model(),
-                            context="\n".join(recent))
-        reply = res["text"]
-        store.add_message("assistant", reply, conversation_id=cid,
-                          meta={"kind": "answer", "status": res["status"]})
-        return {"reply": reply, "remembered": [], "updates": [],
-                "is_answer": True, "status": res["status"], "trivial": False, **base}
+        turn["kind"] = "question"
+        turn["is_answer"] = True
+        turn["context"] = "\n".join(recent)
+        retrieved = search.retrieve_answer(turn["original"])
+        if retrieved.get("final"):
+            turn["ready_reply"] = retrieved.get("text") or ""
+            turn["status"] = _normalize_status(retrieved.get("status"))
+            turn["sources"] = retrieved.get("sources") or []
+        else:
+            turn["retrieval"] = retrieved.get("retrieval") or {}
+            turn["status"] = _normalize_status(
+                search._status_of(turn["retrieval"], turn["original"])
+            )
+            turn["sources"] = turn["retrieval"].get("sources") or []
+        return turn
 
-    # 3. Small talk.
-    if smalltalk_reply(content):
-        reply = smalltalk_reply(content)
-        store.add_message("assistant", reply, conversation_id=cid,
-                          meta={"kind": "smalltalk"})
-        return {"reply": reply, "remembered": [], "updates": [], "trivial": True, **base}
+    if smalltalk_reply(turn["original"]):
+        turn["kind"] = "smalltalk"
+        turn["ready_reply"] = smalltalk_reply(turn["original"])
+        turn["trivial"] = True
+        return turn
 
-    # 4. Normal message: auto-memory (unless disabled).
     if not auto_memory_enabled():
-        reply = "Auto-memory is off, so I won't save this. (Turn it back on in Settings.)"
-        store.add_message("assistant", reply, conversation_id=cid, meta={"kind": "off"})
-        return {"reply": reply, "remembered": [], "updates": [], "trivial": True, **base}
+        turn["kind"] = "off"
+        turn["ready_reply"] = (
+            "Auto-memory is off, so I won't save this. (Turn it back on in Settings.)"
+        )
+        turn["trivial"] = True
+        return turn
 
-    return _extract_and_reply(content, cid, msg_id, force=False, original=content)
-
-
-def _extract_and_reply(content, cid, msg_id, force=False, original=None):
     result = extract.extract(content, model=effective_llm_model(),
                              source_message_id=msg_id)
     if result["trivial"]:
-        reply = "Noted. Tell me more about what you're building or learning."
-        store.add_message("assistant", reply, conversation_id=cid, meta={"kind": "smalltalk"})
-        return {"reply": reply, "remembered": [], "updates": [], "trivial": True,
-                "conversation_id": cid}
+        turn["kind"] = "smalltalk"
+        turn["ready_reply"] = "Noted. Tell me more about what you're building or learning."
+        turn["trivial"] = True
+        return turn
 
-    remembered = result["remembered"]
-    updates = build_updates(result)
-    reply = natural_reply(original or content, remembered, result["used_fallback"])
+    turn["kind"] = "extract"
+    turn["extract"] = result
+    turn["remembered"] = result.get("remembered") or []
+    turn["updates"] = build_updates(result)
+    turn["superseded"] = result.get("superseded") or []
+    turn["used_fallback"] = result.get("used_fallback", False)
+    return turn
 
-    if remembered or updates:
-        store.add_message("assistant", "", conversation_id=cid, extracted=1,
-                          meta={"updates": updates, "used_fallback": result["used_fallback"],
-                                "remembered": remembered})
+
+def render_reply(turn):
+    """Yield reply text. Extraction / retrieval has already finished."""
+    if turn["kind"] == "empty":
+        return
+    if turn["kind"] == "question" and turn.get("retrieval") is not None:
+        yield from search.compose_answer_stream(
+            turn["original"], turn["retrieval"], effective_llm_model(),
+            context=turn.get("context") or "",
+        )
+        return
+    if turn["kind"] == "extract":
+        yield from natural_reply_stream(
+            turn.get("original") or turn["content"],
+            turn.get("remembered") or [],
+            turn.get("used_fallback"),
+        )
+        return
+    if turn.get("ready_reply"):
+        yield turn["ready_reply"]
+
+
+def finalize_turn(turn, reply):
+    cid = turn.get("cid")
+    if turn["kind"] == "empty":
+        return {"reply": "", "remembered": [], "trivial": True}
+
+    meta = {"kind": turn["kind"]}
+    extracted = 0
+    if turn["kind"] == "command":
+        meta = {"kind": "command", "ok": turn.get("ok", True)}
+    elif turn["kind"] == "question":
+        meta = {"kind": "answer", "status": turn.get("status") or "",
+                "sources": turn.get("sources") or []}
+    elif turn["kind"] == "extract":
+        extracted = 1 if (turn.get("remembered") or turn.get("updates")) else 0
+        meta = {"updates": turn.get("updates") or [],
+                "used_fallback": turn.get("used_fallback"),
+                "remembered": turn.get("remembered") or [],
+                "superseded": turn.get("superseded") or []}
+    elif turn["kind"] == "off":
+        meta = {"kind": "off"}
     else:
-        store.add_message("assistant", reply, conversation_id=cid, meta={"kind": "empty"})
+        meta = {"kind": "smalltalk"}
 
-    return {
-        "reply": reply,
-        "remembered": remembered,
-        "updates": updates,
-        "superseded": result.get("superseded", []),
-        "used_fallback": result["used_fallback"],
-        "trivial": False,
+    store.add_message("assistant", reply or "", conversation_id=cid,
+                      extracted=extracted, meta=meta)
+
+    out = {
+        "reply": reply or "",
+        "remembered": turn.get("remembered") or [],
+        "updates": turn.get("updates") or [],
+        "superseded": turn.get("superseded") or [],
+        "used_fallback": turn.get("used_fallback", False),
+        "trivial": turn.get("trivial", False),
         "conversation_id": cid,
     }
+    if turn.get("is_command"):
+        out["is_command"] = True
+        out["ok"] = turn.get("ok", True)
+    if turn.get("is_answer"):
+        out["is_answer"] = True
+        out["status"] = turn.get("status") or ""
+        out["sources"] = turn.get("sources") or []
+    if turn["kind"] == "extract":
+        store.record_last_extract(turn)
+    if turn["kind"] in ("extract", "command") and (
+        out.get("remembered") or out.get("updates") or out.get("is_command")
+    ):
+        _safe_auto_backup()
+    return out
+
+
+def _normalize_status(status):
+    if status in ("answered", "known"):
+        return "known"
+    if status in ("unknown", "uncertain"):
+        return status
+    return "unknown"
+
+
+def _sse(event, payload):
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 # --------------------------------------------------------------------------
@@ -254,23 +426,90 @@ def get_message(mid: int):
 
 
 @app.get("/api/conversations")
-def conversations():
-    rows = store.all_conversations()
-    out = []
-    for c in rows:
-        msgs = store.conversation_messages(c["id"])
-        user_msgs = [m for m in msgs if m["role"] == "user"]
-        out.append({"id": c["id"], "title": c["title"] or "(untitled)",
-                    "created_at": c["created_at"], "updated_at": c["updated_at"],
-                    "message_count": len(msgs),
-                    "preview": user_msgs[-1]["content"][:80] if user_msgs else ""})
-    return out
+def conversations(q: str = None, archived: str = "0"):
+    flag = False
+    raw = (archived or "0").strip().lower()
+    if raw in ("1", "true", "yes"):
+        flag = True
+    elif raw in ("all", "*"):
+        flag = None
+    return store.conversation_summaries(query=q, archived=flag)
 
 
 @app.post("/api/conversations/new")
 def conversations_new():
     cid = store.new_conversation()
     return {"conversation_id": cid}
+
+
+class ConversationPatch(BaseModel):
+    title: Optional[str] = None
+    pinned: Optional[bool] = None
+    archived: Optional[bool] = None
+
+
+@app.patch("/api/conversations/{cid}")
+def conversation_update(cid: int, body: ConversationPatch):
+    if not store.conversation_row(cid):
+        raise HTTPException(404, "conversation not found")
+    if body.title is not None:
+        store.touch_conversation(cid, title=body.title.strip()[:80])
+    fields, params = [], []
+    if body.pinned is not None:
+        fields.append("pinned=?")
+        params.append(1 if body.pinned else 0)
+    if body.archived is not None:
+        fields.append("archived=?")
+        params.append(1 if body.archived else 0)
+    if fields:
+        fields.append("updated_at=?")
+        params.append(db.utcnow())
+        params.append(cid)
+        db.execute(f"UPDATE conversations SET {', '.join(fields)} WHERE id=?", params)
+    return {"ok": True, "conversation": store.conversation_row(cid)}
+
+
+@app.post("/api/conversations/{cid}/summarize")
+def conversation_summarize(cid: int):
+    """Recap one chat into a summary memory. Messages stay."""
+    result = summarize.summarize_conversation(cid)
+    if not result.get("ok") and result.get("error") == "conversation not found":
+        raise HTTPException(404, "conversation not found")
+    return result
+
+
+@app.get("/api/conversations/{cid}/export")
+def conversation_export(cid: int):
+    conv = store.conversation_row(cid)
+    if not conv:
+        raise HTTPException(404, "conversation not found")
+    lines = [
+        f"# {conv.get('title') or 'Conversation'}",
+        "",
+        f"Exported: {db.utcnow()}",
+        "",
+    ]
+    for m in store.conversation_messages(cid):
+        role = m.get("role") or "user"
+        when = (m.get("created_at") or "")[:19]
+        lines.append(f"**{role}** ({when})")
+        lines.append("")
+        lines.append(m.get("content") or "")
+        lines.append("")
+    name = f"conversation-{cid}.md"
+    return Response(
+        content="\n".join(lines),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+@app.delete("/api/conversations/{cid}")
+def conversation_delete(cid: int):
+    if not store.conversation_row(cid):
+        raise HTTPException(404, "conversation not found")
+    store.delete_conversation(cid)
+    return {"ok": True, "conversation_id": store.current_conversation_id()}
 
 
 @app.get("/api/conversations/{cid}/messages")
@@ -282,7 +521,10 @@ def conversation_messages(cid: int):
                     "created_at": m["created_at"],
                     "updates": meta.get("updates", []),
                     "remembered": meta.get("remembered", []),
-                    "kind": meta.get("kind", "")})
+                    "kind": meta.get("kind", ""),
+                    "status": meta.get("status", ""),
+                    "sources": meta.get("sources", []),
+                    "superseded": meta.get("superseded", [])})
     return out
 
 
@@ -291,20 +533,8 @@ def conversation_messages(cid: int):
 # --------------------------------------------------------------------------
 
 @app.get("/api/graph")
-def graph(active_only: bool = True):
-    ents = store.all_entities()
-    rels = store.all_relationships(active_only=active_only)
-    nodes = [{"id": e["id"], "label": e["name"], "type": e["type"],
-              "description": e["description"], "confidence": e["confidence"],
-              "pinned": e.get("pinned", 0), "important": e.get("important", 0),
-              "status": e.get("status", "active")} for e in ents]
-    edges = [{"id": f"e{r['id']}", "source": r["source_id"], "target": r["target_id"],
-              "relation": r["relation"], "confidence": r["confidence"],
-              "status": r.get("status", "active")} for r in rels]
-    return {"nodes": nodes, "edges": edges,
-            "type_colors": config.TYPE_COLORS,
-            "relation_types": config.RELATION_TYPES,
-            "entity_types": config.ENTITY_TYPES}
+def graph(active_only: bool = True, focus: str = "auto", depth: int = 2):
+    return graph_engine.graph_view(focus=focus, depth=depth, active_only=active_only)
 
 
 @app.get("/api/graph/filter")
@@ -337,6 +567,11 @@ def graph_stats():
     return graph_engine.graph_stats()
 
 
+@app.get("/api/graph/groups")
+def graph_groups(active_only: bool = True):
+    return graph_engine.group_by_type(active_only=active_only)
+
+
 # --------------------------------------------------------------------------
 # API: entities
 # --------------------------------------------------------------------------
@@ -350,8 +585,35 @@ def _entity_degree_map():
     return deg
 
 
+@app.get("/api/entities/duplicates")
+def entity_duplicates(limit: int = 20):
+    """Near-duplicate pairs by embedding. Never auto-merges."""
+    try:
+        limit = max(1, min(int(limit or 20), 50))
+    except (TypeError, ValueError):
+        limit = 20
+    seen, pairs = set(), []
+    for e in store.all_entities():
+        if (e.get("norm_name") or "") == "user":
+            continue
+        for hit in store.similar_entities(e["id"], limit=3, min_score=0.88):
+            key = tuple(sorted((e["id"], hit["id"])))
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append({
+                "a": {"id": e["id"], "name": e["name"], "type": e["type"]},
+                "b": {"id": hit["id"], "name": hit["name"], "type": hit["type"]},
+                "score": hit["score"],
+            })
+            if len(pairs) >= limit:
+                return pairs
+    return pairs
+
+
 @app.get("/api/entities")
-def entities(q: str = None, type: str = None, pinned: bool = None, important: bool = None):
+def entities(q: str = None, type: str = None, pinned: bool = None, important: bool = None,
+             sort: str = "name", orphans: bool = False):
     rows = store.all_entities()
     if type:
         rows = [r for r in rows if r["type"] == type]
@@ -363,12 +625,25 @@ def entities(q: str = None, type: str = None, pinned: bool = None, important: bo
     if important is not None:
         rows = [r for r in rows if bool(r.get("important", 0)) == important]
     deg = _entity_degree_map()
-    return [{"id": r["id"], "name": r["name"], "type": r["type"],
-             "description": r["description"], "degree": deg.get(r["id"], 0),
-             "confidence": r["confidence"], "pinned": r.get("pinned", 0),
-             "important": r.get("important", 0), "status": r.get("status", "active"),
-             "created_at": r["created_at"], "updated_at": r["updated_at"],
-             "source_message_id": r.get("source_message_id")} for r in rows]
+    out = [{"id": r["id"], "name": r["name"], "type": r["type"],
+            "description": r["description"], "degree": deg.get(r["id"], 0),
+            "confidence": r["confidence"], "pinned": r.get("pinned", 0),
+            "important": r.get("important", 0), "status": r.get("status", "active"),
+            "created_at": r["created_at"], "updated_at": r["updated_at"],
+            "source_message_id": r.get("source_message_id")} for r in rows]
+    if orphans:
+        out = [e for e in out if int(e.get("degree") or 0) == 0
+               and (e.get("name") or "").lower() != "user"]
+    key = (sort or "name").lower()
+    if key == "degree":
+        out.sort(key=lambda e: (-int(e.get("degree") or 0), (e.get("name") or "").lower()))
+    elif key == "recent":
+        out.sort(key=lambda e: e.get("updated_at") or e.get("created_at") or "", reverse=True)
+    elif key == "confidence":
+        out.sort(key=lambda e: (-float(e.get("confidence") or 0), (e.get("name") or "").lower()))
+    else:
+        out.sort(key=lambda e: (e.get("name") or "").lower())
+    return out
 
 
 def _source_for(message_id):
@@ -403,6 +678,7 @@ def entity_detail(eid: int):
         if r["sid"] == eid:
             related.append({"other_id": r["tid"], "other_name": r["tname"],
                             "other_type": r["ttype"], "relation": r["relation"],
+                            "canonical": r["relation"],
                             "direction": "out", "rid": r["rid"], "status": r["status"],
                             "confidence": r["confidence"],
                             "source": _source_for(r["source_message_id"])})
@@ -410,6 +686,7 @@ def entity_detail(eid: int):
             inv = {v: k for k, v in config.RELATION_INVERSE.items()}.get(r["relation"], r["relation"])
             related.append({"other_id": r["sid"], "other_name": r["sname"],
                             "other_type": r["stype"], "relation": inv,
+                            "canonical": r["relation"],
                             "direction": "in", "rid": r["rid"], "status": r["status"],
                             "confidence": r["confidence"],
                             "source": _source_for(r["source_message_id"])})
@@ -439,6 +716,7 @@ def entity_detail(eid: int):
         "related": related,
         "memories": mems,
         "history": history,
+        "similar": store.similar_entities(eid),
     }
 
 
@@ -468,6 +746,7 @@ class EntityPatch(BaseModel):
     status: Optional[str] = None
     pinned: Optional[bool] = None
     important: Optional[bool] = None
+    aliases: Optional[List[str]] = None
 
 
 @app.patch("/api/entities/{eid}")
@@ -490,6 +769,16 @@ def entity_update(eid: int, body: EntityPatch):
         fields["pinned"] = 1 if body.pinned else 0
     if body.important is not None:
         fields["important"] = 1 if body.important else 0
+    if body.aliases is not None:
+        cleaned, seen = [], set()
+        for raw in body.aliases:
+            name = str(raw or "").strip()[:80]
+            key = store.normalize_name(name)
+            if not name or key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(name)
+        fields["aliases"] = cleaned[:20]
     store.update_entity(eid, **fields)
     return {"ok": True}
 
@@ -516,10 +805,87 @@ def entity_merge(body: MergeIn):
     return store.merge_entities(body.keep_id, body.drop_id)
 
 
+class RelPatch(BaseModel):
+    relation: Optional[str] = None
+    confidence: Optional[float] = None
+    status: Optional[str] = None
+
+
+@app.patch("/api/relationships/{rid}")
+def rel_update(rid: int, body: RelPatch):
+    row = store.relationship_row(rid)
+    if not row:
+        raise HTTPException(404, "relationship not found")
+    fields = {}
+    if body.relation is not None:
+        rel, _swap = store.normalize_relation(body.relation)
+        fields["relation"] = rel
+    if body.confidence is not None:
+        fields["confidence"] = max(0.0, min(1.0, body.confidence))
+    if body.status is not None:
+        fields["status"] = body.status
+    store.update_relationship(rid, **fields)
+    return {"ok": True}
+
+
 @app.delete("/api/relationships/{rid}")
 def rel_delete(rid: int):
     store.delete_relationship(rid)
     return {"ok": True}
+
+
+class RelCreate(BaseModel):
+    source_id: int
+    target_id: int
+    relation: str
+    confidence: Optional[float] = 0.8
+
+
+@app.post("/api/relationships")
+def rel_create(body: RelCreate):
+    if not store.entity_row(body.source_id) or not store.entity_row(body.target_id):
+        raise HTTPException(404, "entity not found")
+    if body.source_id == body.target_id:
+        raise HTTPException(400, "cannot relate an entity to itself")
+    rel, swap = store.normalize_relation(body.relation)
+    sid, tid = body.source_id, body.target_id
+    if swap:
+        sid, tid = tid, sid
+    conf = max(0.0, min(1.0, float(body.confidence if body.confidence is not None else 0.8)))
+    rid = store.add_relationship(sid, tid, rel, confidence=conf)
+    srow, trow = store.entity_row(sid), store.entity_row(tid)
+    store.add_memory("relationship", f'{srow["name"]} → {rel} → {trow["name"]}',
+                     entity_ids=[sid, tid], confidence=conf)
+    return {"ok": True, "id": rid, "relation": rel, "source_id": sid, "target_id": tid}
+
+
+@app.get("/api/facts")
+def list_facts(active_only: bool = True, status: str = None, entity_id: int = None):
+    """Readable facts (relationships) from the real graph. Never fabricated."""
+    rels = store.all_relationships(active_only=False)
+    ents = {e["id"]: e for e in store.all_entities()}
+    out = []
+    for r in rels:
+        if active_only and r.get("status", "active") != "active":
+            continue
+        if status and r.get("status", "active") != status:
+            continue
+        if entity_id is not None and entity_id not in (r["source_id"], r["target_id"]):
+            continue
+        src, tgt = ents.get(r["source_id"]), ents.get(r["target_id"])
+        if not src or not tgt:
+            continue
+        out.append({
+            "id": r["id"],
+            "text": f'{src["name"]} {r["relation"]} {tgt["name"]}',
+            "source_id": r["source_id"], "target_id": r["target_id"],
+            "source": src["name"], "target": tgt["name"],
+            "relation": r["relation"], "confidence": r["confidence"],
+            "status": r.get("status", "active"),
+            "source_message_id": r.get("source_message_id"),
+            "created_at": r.get("created_at"),
+        })
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -528,13 +894,28 @@ def rel_delete(rid: int):
 
 @app.get("/api/memories")
 def memories(limit: int = 200, entity_id: int = None, kind: str = None,
-             type: str = None, conversation_id: int = None, date: str = None):
+             type: str = None, conversation_id: int = None, date: str = None,
+             entity: str = None, q: str = None):
     rows = store.recent_memories(limit if limit <= 2000 else 2000)
+    resolved_eid = entity_id
+    if resolved_eid is None and entity:
+        hit = store.find_entity_by_name(entity)
+        if hit:
+            resolved_eid = hit["id"]
+        else:
+            # substring match
+            ql = entity.lower()
+            for e in store.all_entities():
+                if ql in e["name"].lower():
+                    resolved_eid = e["id"]
+                    break
     out = []
     for m in rows:
-        if entity_id is not None and entity_id not in json.loads(m["entity_ids"] or "[]"):
+        if resolved_eid is not None and resolved_eid not in json.loads(m["entity_ids"] or "[]"):
             continue
         if kind and m["kind"] != kind:
+            continue
+        if q and q.lower() not in (m.get("text") or "").lower():
             continue
         if date and not m["created_at"].startswith(date):
             continue
@@ -557,6 +938,9 @@ class SearchIn(BaseModel):
     status: Optional[str] = None
     pinned: Optional[bool] = None
     important: Optional[bool] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    source: Optional[str] = None
 
 
 @app.post("/api/search")
@@ -564,6 +948,7 @@ def do_search(body: SearchIn):
     filters = {k: v for k, v in {
         "type": body.type, "min_confidence": body.min_confidence,
         "status": body.status, "pinned": body.pinned, "important": body.important,
+        "date_from": body.date_from, "date_to": body.date_to, "source": body.source,
     }.items() if v is not None}
     res = search.search(body.query, filters=filters)
     ans = search.answer(body.query, model=effective_llm_model(), filters=filters)
@@ -645,13 +1030,63 @@ def export_markdown():
 class ImportIn(BaseModel):
     data: str
     mode: str = "merge"  # 'merge' | 'replace'
+    confirm: bool = False
 
 
 @app.post("/api/import")
 def do_import(body: ImportIn):
     if body.mode not in ("merge", "replace"):
         raise HTTPException(400, "mode must be 'merge' or 'replace'")
-    return export.import_from_json(body.data, mode=body.mode)
+    if body.mode == "replace" and not body.confirm:
+        raise HTTPException(400, "replace requires confirm=true")
+    if len((body.data or "").encode("utf-8")) > MAX_IMPORT_BYTES:
+        raise HTTPException(400, "import payload too large (8 MB max)")
+    result = export.import_from_json(body.data, mode=body.mode)
+    if result.get("ok"):
+        _safe_auto_backup()
+    return result
+
+
+class NotesIn(BaseModel):
+    text: str
+
+
+@app.post("/api/import/notes")
+def import_notes(body: NotesIn):
+    if len((body.text or "").encode("utf-8")) > MAX_IMPORT_BYTES:
+        raise HTTPException(400, "note payload too large (8 MB max)")
+    result = export.import_notes(body.text)
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error") or "import failed")
+    _safe_auto_backup()
+    return result
+
+
+class FileIn(BaseModel):
+    filename: str
+    text: str
+
+
+@app.post("/api/import/file")
+def import_file(body: FileIn):
+    """User-initiated text ingest. JSON uses merge import; anything else is notes."""
+    if len((body.text or "").encode("utf-8")) > MAX_IMPORT_BYTES:
+        raise HTTPException(400, "file payload too large (8 MB max)")
+    name = (body.filename or "").lower().strip()
+    if name.endswith(".json"):
+        result = export.import_from_json(body.text, mode="merge")
+    else:
+        result = export.import_notes(body.text)
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error") or "import failed")
+    _safe_auto_backup()
+    return result
+
+
+@app.post("/api/undo")
+def undo_last():
+    """Supersede the last extract. Never deletes the database or history."""
+    return store.undo_last_extract()
 
 
 # --------------------------------------------------------------------------
@@ -666,6 +1101,25 @@ def do_backup():
 @app.get("/api/backup/status")
 def backup_status():
     return backup.backup_status()
+
+
+@app.get("/api/backups")
+def backups_list():
+    return backup.list_backups()
+
+
+class RestoreIn(BaseModel):
+    name: str
+    confirm: bool = False
+
+
+@app.post("/api/backup/restore")
+def backup_restore(body: RestoreIn):
+    result = backup.restore_backup(body.name, confirm=body.confirm)
+    if not result.get("ok"):
+        err = result.get("error") or "restore failed"
+        raise HTTPException(400, err)
+    return result
 
 
 # --------------------------------------------------------------------------
@@ -702,10 +1156,21 @@ def get_settings():
         "confidence_threshold": db.get_setting_float("confidence_threshold", config.DEFAULT_CONFIDENCE_THRESHOLD),
         "merge_similarity": db.get_setting_float("merge_similarity", config.DEFAULT_MERGE_SIMILARITY),
         "auto_memory": db.get_setting_bool("auto_memory", True),
+        "auto_backup_hours": db.get_setting_float("auto_backup_hours", config.DEFAULT_AUTO_BACKUP_HOURS),
         "theme": db.get_setting("theme", "dark"),
         "ollama_available": ollama.available(),
         "models_installed": ollama.list_models(),
         "db_path": config.DB_PATH,
+        "db_ok": db.integrity_ok(),
+        "privacy": {
+            "mode": "local-first",
+            "local": True,
+            "private": True,
+            "telemetry": False,
+            "cloud": False,
+            "data_leaves_machine": False,
+            "activity_watch": False,
+        },
     }
 
 
@@ -716,6 +1181,7 @@ class SettingsIn(BaseModel):
     confidence_threshold: Optional[float] = None
     merge_similarity: Optional[float] = None
     auto_memory: Optional[bool] = None
+    auto_backup_hours: Optional[float] = None
     theme: Optional[str] = None
 
 
@@ -726,21 +1192,34 @@ def set_settings(body: SettingsIn):
     if body.embedding_model:
         db.set_setting("embedding_model", body.embedding_model.strip())
     if body.ollama_base_url:
-        db.set_setting("ollama_base_url", body.ollama_base_url.strip().rstrip("/"))
+        url = body.ollama_base_url.strip().rstrip("/")
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise HTTPException(400, "Ollama URL must be http(s)://host[:port]")
+        db.set_setting("ollama_base_url", url)
     if body.confidence_threshold is not None:
         db.set_setting("confidence_threshold", max(0.0, min(1.0, body.confidence_threshold)))
     if body.merge_similarity is not None:
         db.set_setting("merge_similarity", max(0.0, min(1.0, body.merge_similarity)))
     if body.auto_memory is not None:
         db.set_setting("auto_memory", bool(body.auto_memory))
+    if body.auto_backup_hours is not None:
+        db.set_setting("auto_backup_hours", max(0.0, min(168.0, float(body.auto_backup_hours))))
     if body.theme:
         db.set_setting("theme", body.theme)
     return get_settings()
 
 
+class ResetIn(BaseModel):
+    confirm: bool = False
+
+
 @app.post("/api/reset")
-def reset():
-    """Wipe all data (dangerous, for testing)."""
+def reset(body: Optional[ResetIn] = None):
+    """Wipe all data. Requires explicit confirmation."""
+    payload = body or ResetIn()
+    if not payload.confirm:
+        raise HTTPException(400, "confirmation required")
     for t in ("relationships", "entities", "memories", "messages", "conversations"):
         db.execute(f"DELETE FROM {t}")
     db.set_setting("current_conversation_id", None)
@@ -770,21 +1249,102 @@ def demo():
         r = chat(ChatIn(content=line, conversation_id=cid))
         replies.append(r.get("reply", ""))
     store.touch_conversation(cid, title="Demo conversation")
-    # Clearly mark all messages and their extracted entities in this
-    # conversation as demo data (distinct from real user data).
-    db.execute("UPDATE messages SET meta=? WHERE conversation_id=?",
-               (json.dumps({"demo": True}), cid))
+    # Merge a demo flag into existing message meta (do not wipe remembered chips).
+    for m in store.conversation_messages(cid):
+        try:
+            meta = json.loads(m.get("meta") or "{}")
+        except ValueError:
+            meta = {}
+        meta["demo"] = True
+        db.execute("UPDATE messages SET meta=? WHERE id=?", (json.dumps(meta), m["id"]))
     msg_ids = [m["id"] for m in store.conversation_messages(cid)]
     if msg_ids:
         placeholders = ",".join("?" for _ in msg_ids)
-        db.execute(f"UPDATE entities SET meta=? WHERE source_message_id IN ({placeholders})",
-                   (json.dumps({"demo": True}), *msg_ids))
+        rows = db.query(
+            f"SELECT id, meta FROM entities WHERE source_message_id IN ({placeholders})",
+            tuple(msg_ids),
+        )
+        for row in rows:
+            try:
+                meta = json.loads(row.get("meta") or "{}")
+            except ValueError:
+                meta = {}
+            meta["demo"] = True
+            db.execute("UPDATE entities SET meta=? WHERE id=?", (json.dumps(meta), row["id"]))
     return {"ok": True, "replies": replies, "conversation_id": cid}
+
+
+@app.post("/api/demo/clear")
+def demo_clear():
+    """Remove only demo-marked entities and the demo conversation. Real data stays."""
+    demo_ents = db.query("SELECT id, name, norm_name FROM entities WHERE meta LIKE '%demo%'")
+    removed = 0
+    for e in demo_ents:
+        if e["norm_name"] == store.normalize_name(config.USER_ENTITY_NAME):
+            continue
+        store.delete_entity(e["id"])
+        removed += 1
+    demo_convs = db.query("SELECT DISTINCT conversation_id FROM messages WHERE meta LIKE '%demo%'")
+    for c in demo_convs:
+        if c["conversation_id"]:
+            store.delete_conversation(c["conversation_id"])
+    return {"ok": True, "entities_removed": removed}
+
+
+@app.post("/api/chat/stream")
+def chat_stream(body: ChatIn):
+    """SSE chat. Extraction/retrieval finish first; the reply then streams."""
+    def generate():
+        turn = prepare_turn(body.content, body.conversation_id)
+        if turn.get("cid"):
+            yield _sse("meta", {"conversation_id": turn["cid"]})
+        if turn.get("remembered") or turn.get("updates") or turn.get("superseded"):
+            yield _sse("memory", {
+                "remembered": turn.get("remembered") or [],
+                "updates": turn.get("updates") or [],
+                "superseded": turn.get("superseded") or [],
+                "used_fallback": turn.get("used_fallback"),
+            })
+        if turn.get("status"):
+            yield _sse("status", {"status": turn["status"]})
+        if turn.get("sources"):
+            yield _sse("sources", {"sources": turn["sources"]})
+        chunks = []
+        try:
+            for piece in render_reply(turn):
+                if piece:
+                    chunks.append(piece)
+                    yield _sse("token", {"text": piece})
+        except Exception:
+            fallback = turn.get("ready_reply") or _natural_reply_fallback(
+                turn.get("remembered") or [], turn.get("used_fallback"))
+            if fallback and not chunks:
+                chunks.append(fallback)
+                yield _sse("token", {"text": fallback})
+        reply = "".join(chunks)
+        result = finalize_turn(turn, reply)
+        yield _sse("done", result)
+
+    return StreamingResponse(generate(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # --------------------------------------------------------------------------
 # Static frontend (served by the same local server — no build step needed)
 # --------------------------------------------------------------------------
+
+@app.get("/favicon.ico")
+@app.get("/favicon.png")
+def favicon():
+    from launcher.icons import icon_ico, icon_png
+    png = icon_png()
+    if png is not None:
+        return FileResponse(str(png), media_type="image/png")
+    ico = icon_ico()
+    if ico is not None:
+        return FileResponse(str(ico), media_type="image/x-icon")
+    raise HTTPException(404, "icon not found")
+
 
 if os.path.isdir(config.FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=config.FRONTEND_DIR, html=True), name="frontend")

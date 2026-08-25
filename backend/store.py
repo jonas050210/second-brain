@@ -51,17 +51,31 @@ def vec_from_json(s):
     return np.array(json.loads(s), dtype=np.float32)
 
 
+_EMBED_CACHE = {}
+_EMBED_CACHE_MAX = 256
+
+
 def embed_text(text, model=None):
     """Embed text using Ollama if available, else the fallback hasher."""
     if model is None:
         model = db.get_setting("embedding_model", config.DEFAULT_EMBEDDING_MODEL)
+    cache_key = (model or "", text or "")
+    cached = _EMBED_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    vec = None
     if ollama.available():
         try:
-            return np.array(ollama.embed(model or config.DEFAULT_EMBEDDING_MODEL, text),
-                            dtype=np.float32)
+            vec = np.array(ollama.embed(model or config.DEFAULT_EMBEDDING_MODEL, text),
+                           dtype=np.float32)
         except Exception:
-            pass
-    return np.array(fallback.fallback_embed(text), dtype=np.float32)
+            vec = None
+    if vec is None or vec.size == 0:
+        vec = np.array(fallback.fallback_embed(text), dtype=np.float32)
+    if len(_EMBED_CACHE) >= _EMBED_CACHE_MAX:
+        _EMBED_CACHE.pop(next(iter(_EMBED_CACHE)))
+    _EMBED_CACHE[cache_key] = vec
+    return vec
 
 
 def merge_similarity_threshold():
@@ -148,7 +162,10 @@ def find_duplicate(entity_name, etype, embedding=None):
     if row:
         return row
 
-    alias_rows = db.query("SELECT * FROM entities")
+    alias_rows = db.query(
+        "SELECT * FROM entities WHERE aliases LIKE ?",
+        (f"%{norm}%",),
+    )
     for r in alias_rows:
         try:
             aliases = json.loads(r.get("aliases") or "[]")
@@ -159,6 +176,7 @@ def find_duplicate(entity_name, etype, embedding=None):
 
     if embedding is not None:
         threshold = merge_similarity_threshold()
+        alias_rows = db.query("SELECT * FROM entities WHERE embedding IS NOT NULL")
         for r in alias_rows:
             if normalize_name(r["name"]) in ("user",) and etype == "person":
                 continue
@@ -220,8 +238,26 @@ def merge_entities(keep_id, drop_id):
     desc = keep.get("description") or drop.get("description") or ""
     update_entity(keep_id, description=desc, aliases=aliases,
                   confidence=max(keep["confidence"], drop["confidence"]))
-    db.execute("UPDATE memories SET entity_ids=? WHERE entity_ids=?",
-               (json.dumps([keep_id]), json.dumps([drop_id])))
+    # Rewrite every memory that references the dropped entity (including
+    # multi-id memories such as relationship events).
+    mems = db.query("SELECT id, entity_ids FROM memories WHERE entity_ids LIKE ?",
+                    (f"%{drop_id}%",))
+    for m in mems:
+        try:
+            ids = json.loads(m["entity_ids"] or "[]")
+        except ValueError:
+            continue
+        if drop_id not in ids:
+            continue
+        rewritten, seen = [], set()
+        for i in ids:
+            nid = keep_id if i == drop_id else i
+            if nid in seen:
+                continue
+            seen.add(nid)
+            rewritten.append(nid)
+        db.execute("UPDATE memories SET entity_ids=? WHERE id=?",
+                   (json.dumps(rewritten), m["id"]))
     db.execute("DELETE FROM entities WHERE id=?", (drop_id,))
     return {"ok": True, "id": keep_id}
 
@@ -245,7 +281,8 @@ def toggle_entity_flag(eid, flag):
 
 
 def set_confidence(eid, confidence):
-    db.execute("UPDATE entities SET confidence=? WHERE id=?", (confidence, eid))
+    db.execute("UPDATE entities SET confidence=?, updated_at=? WHERE id=?",
+               (confidence, db.utcnow(), eid))
 
 
 def entity_row(eid):
@@ -254,6 +291,36 @@ def entity_row(eid):
 
 def all_entities():
     return db.query("SELECT * FROM entities ORDER BY type, name COLLATE NOCASE")
+
+
+def similar_entities(eid, limit=6, min_score=0.78):
+    """Near-duplicates by embedding. Never auto-merges; the UI can suggest Merge."""
+    row = entity_row(eid)
+    if not row:
+        return []
+    vec = vec_from_json(row.get("embedding"))
+    if vec is None:
+        return []
+    try:
+        limit = max(1, min(int(limit or 6), 20))
+    except (TypeError, ValueError):
+        limit = 6
+    scored = []
+    for other in all_entities():
+        if other["id"] == eid:
+            continue
+        ev = vec_from_json(other.get("embedding"))
+        if ev is None:
+            continue
+        score = _cosine(vec, ev)
+        if score >= min_score:
+            scored.append((score, other))
+    scored.sort(key=lambda x: -x[0])
+    return [{
+        "id": other["id"], "name": other["name"], "type": other["type"],
+        "score": round(float(score), 3),
+        "status": other.get("status", "active"),
+    } for score, other in scored[:limit]]
 
 
 # --------------------------------------------------------------------------
@@ -288,6 +355,14 @@ def relationship_exists(source_id, target_id, relation):
     ) is not None
 
 
+def relationship_active(source_id, target_id, relation):
+    return db.query_one(
+        "SELECT id FROM relationships WHERE source_id=? AND target_id=? "
+        "AND relation=? AND status='active'",
+        (source_id, target_id, relation),
+    ) is not None
+
+
 def supersede_relationship(source_id, target_id, relation):
     """Mark a matching active relationship as superseded. Returns count changed."""
     rows = db.query(
@@ -313,6 +388,32 @@ def supersede_relations_of_type(source_id, relation, except_target_id=None, targ
         db.execute("UPDATE relationships SET status='superseded' WHERE id=?", (r["id"],))
         changed.append(r["target_id"])
     return changed
+
+
+def update_relationship(rid, **fields):
+    """Update relation label, confidence, or status. Never deletes the row."""
+    allowed = {"relation", "confidence", "status"}
+    sets, params = [], []
+    for k, v in fields.items():
+        if k not in allowed:
+            continue
+        if k == "relation":
+            rel, _swap = normalize_relation(v)
+            v = rel
+        if k == "confidence":
+            try:
+                v = max(0.0, min(1.0, float(v)))
+            except (TypeError, ValueError):
+                continue
+        if k == "status" and v not in ("active", "superseded"):
+            continue
+        sets.append(f"{k}=?")
+        params.append(v)
+    if not sets:
+        return False
+    params.append(rid)
+    db.execute(f"UPDATE relationships SET {', '.join(sets)} WHERE id=?", params)
+    return True
 
 
 def delete_relationship(rid):
@@ -360,6 +461,71 @@ def all_conversations():
     return db.query("SELECT * FROM conversations ORDER BY updated_at DESC, id DESC")
 
 
+def _like_pattern(query):
+    raw = (query or "").strip()
+    if not raw:
+        return None
+    escaped = raw.replace("#", "##").replace("%", "#%").replace("_", "#_")
+    return f"%{escaped}%"
+
+
+def conversation_summaries(query=None, limit=200, archived=False):
+    """List conversations with counts/previews. Optional title+message search.
+
+    Does not load every message row. LIKE wildcards in ``query`` are escaped
+    so ``%`` cannot dump the whole rail. ``archived`` is False (hide), True
+    (only archived), or None (everything).
+    """
+    try:
+        limit = max(1, min(int(limit or 200), 500))
+    except (TypeError, ValueError):
+        limit = 200
+    like = _like_pattern(query)
+    params = []
+    where_parts = []
+    if like:
+        where_parts.append(
+            "c.id IN ("
+            "  SELECT id FROM conversations WHERE title LIKE ? ESCAPE '#' "
+            "  UNION "
+            "  SELECT conversation_id FROM messages "
+            "  WHERE conversation_id IS NOT NULL AND content LIKE ? ESCAPE '#'"
+            ")"
+        )
+        params.extend([like, like])
+    if archived is True:
+        where_parts.append("COALESCE(c.archived, 0)=1")
+    elif archived is False:
+        where_parts.append("COALESCE(c.archived, 0)=0")
+    where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+    sql = (
+        "SELECT c.id, c.title, c.created_at, c.updated_at, "
+        "  COALESCE(c.pinned, 0) AS pinned, "
+        "  COALESCE(c.archived, 0) AS archived, "
+        "  (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id) AS message_count, "
+        "  (SELECT m.content FROM messages m WHERE m.conversation_id=c.id AND m.role='user' "
+        "   ORDER BY m.id DESC LIMIT 1) AS preview "
+        "FROM conversations c "
+        f"{where} "
+        "ORDER BY COALESCE(c.pinned, 0) DESC, c.updated_at DESC, c.id DESC LIMIT ?"
+    )
+    params.append(limit)
+    rows = db.query(sql, tuple(params))
+    out = []
+    for c in rows:
+        out.append({
+            "id": c["id"],
+            "title": c["title"] or "(untitled)",
+            "created_at": c["created_at"],
+            "updated_at": c["updated_at"],
+            "pinned": int(c.get("pinned") or 0),
+            "archived": int(c.get("archived") or 0),
+            "message_count": int(c.get("message_count") or 0),
+            "preview": (c.get("preview") or "")[:80],
+        })
+    return out
+
+
 def current_conversation_id():
     cid = db.get_setting("current_conversation_id")
     if cid is None:
@@ -379,21 +545,40 @@ def new_conversation():
 
 
 def conversation_messages(cid, limit=None):
-    sql = "SELECT * FROM messages WHERE conversation_id=? ORDER BY id ASC"
+    """Return messages in chronological order. `limit` means the last N turns."""
     if limit:
-        sql += f" LIMIT {int(limit)}"
-    return db.query(sql, (cid,))
+        return db.query(
+            "SELECT * FROM ("
+            "  SELECT * FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT ?"
+            ") ORDER BY id ASC",
+            (cid, int(limit)),
+        )
+    return db.query(
+        "SELECT * FROM messages WHERE conversation_id=? ORDER BY id ASC",
+        (cid,),
+    )
+
+
+def delete_conversation(cid):
+    """Delete a conversation and its messages. Long-term memories stay."""
+    db.execute("DELETE FROM messages WHERE conversation_id=?", (cid,))
+    db.execute("DELETE FROM conversations WHERE id=?", (cid,))
+    current = db.get_setting("current_conversation_id")
+    if current is not None and str(current) == str(cid):
+        db.set_setting("current_conversation_id", None)
+    return True
 
 
 # --------------------------------------------------------------------------
 # Memories (timeline events)
 # --------------------------------------------------------------------------
 
-def add_memory(kind, text, entity_ids=None, message_id=None, confidence=0.8):
+def add_memory(kind, text, entity_ids=None, message_id=None, confidence=0.8, meta=None):
     return db.execute(
-        "INSERT INTO memories(kind, text, entity_ids, message_id, confidence, created_at) "
-        "VALUES(?,?,?,?,?,?)",
-        (kind, text, json.dumps(entity_ids or []), message_id, confidence, db.utcnow()),
+        "INSERT INTO memories(kind, text, entity_ids, message_id, confidence, created_at, meta) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (kind, text, json.dumps(entity_ids or []), message_id, confidence, db.utcnow(),
+         json.dumps(meta or {})),
     )
 
 
@@ -435,3 +620,116 @@ def messages(limit=200):
 
 def message_by_id(mid):
     return db.query_one("SELECT * FROM messages WHERE id=?", (mid,))
+
+
+UNDO_STACK_MAX = 3
+
+
+def _read_undo_stack():
+    """Newest first. Migrates the single last_extract setting if needed."""
+    raw = db.get_setting("last_extracts")
+    stack = []
+    if raw:
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(data, list):
+                stack = [item for item in data if isinstance(item, dict)]
+        except ValueError:
+            stack = []
+    if not stack:
+        one = db.get_setting("last_extract")
+        if one:
+            try:
+                payload = json.loads(one) if isinstance(one, str) else one
+                if isinstance(payload, dict) and "new_relationships" in payload:
+                    stack = [payload]
+            except ValueError:
+                pass
+    return stack
+
+
+def _write_undo_stack(stack):
+    stack = list(stack)[:UNDO_STACK_MAX]
+    db.set_setting("last_extracts", json.dumps(stack))
+    if stack:
+        db.set_setting("last_extract", json.dumps(stack[0]))
+    else:
+        db.set_setting("last_extract", "")
+
+
+def undo_available():
+    return bool(_read_undo_stack())
+
+
+def record_last_extract(turn):
+    """Push this extract onto the undo stack. Never deletes rows."""
+    ext = (turn or {}).get("extract") or {}
+    rels = []
+    for r in ext.get("relationships") or []:
+        if not r.get("new"):
+            continue
+        try:
+            rels.append({
+                "source_id": int(r["source"]),
+                "target_id": int(r["target"]),
+                "relation": r["relation"],
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    created = []
+    for e in ext.get("entities") or []:
+        if e.get("created") and e.get("id") is not None:
+            try:
+                created.append(int(e["id"]))
+            except (TypeError, ValueError):
+                continue
+    payload = {
+        "conversation_id": (turn or {}).get("cid"),
+        "message_id": (turn or {}).get("msg_id"),
+        "created_entity_ids": created,
+        "new_relationships": rels,
+        "at": db.utcnow(),
+    }
+    stack = _read_undo_stack()
+    stack.insert(0, payload)
+    _write_undo_stack(stack)
+    return payload
+
+
+def undo_last_extract():
+    """Supersede relationships from the newest extract. Entities stay in history."""
+    stack = _read_undo_stack()
+    if not stack:
+        return {"ok": False, "error": "nothing to undo", "undone": 0,
+                "reply": "Nothing to undo."}
+    payload = stack.pop(0)
+    names = []
+    changed = 0
+    for r in payload.get("new_relationships") or []:
+        try:
+            sid = int(r["source_id"])
+            tid = int(r["target_id"])
+            rel = r["relation"]
+        except (KeyError, TypeError, ValueError):
+            continue
+        n = supersede_relationship(sid, tid, rel)
+        if not n:
+            continue
+        changed += n
+        srow, trow = entity_row(sid), entity_row(tid)
+        if srow and trow:
+            names.append(f'{srow["name"]} {rel} {trow["name"]}')
+    label = "Undid last extract" + (": " + "; ".join(names[:8]) if names else "")
+    add_memory("command", label, entity_ids=payload.get("created_entity_ids") or [],
+               message_id=payload.get("message_id"))
+    _write_undo_stack(stack)
+    if not changed:
+        return {"ok": True, "undone": 0, "remaining": len(stack),
+                "reply": "Nothing durable to undo from the last extract."}
+    return {
+        "ok": True,
+        "undone": changed,
+        "remaining": len(stack),
+        "reply": "Undid the last extract. " + "; ".join(names[:8]) + " (no longer active).",
+    }
+
