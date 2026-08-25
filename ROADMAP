@@ -55,6 +55,15 @@ The database is the source of truth. Current version: **2.7.0**.
 - Memory text search; real favicon from the EXE icon
 - Undo stack of the last three extracts
 - Conversation recap (messages kept); grounded summarizer polish
+- Source-preserving merge / replace import with conversation metadata and remapped links
+- Import validation rejects malformed payloads before any SQLite write
+- Duplicate merges retain conflicting relationships; reset / replace clear stale undo state
+- Optional Ollama failures, malformed responses, and corrupt embeddings fail closed to offline behavior
+- Search filters apply consistently to facts and direct answers
+- Chat history restores stored message times; unknown conversation ids do not create orphan messages
+- Reset and replace-import safety snapshots that abort before wiping if backup fails
+- GUI polish: source-linked dashboard memories, single-click chat opening, accessible mobile navigation, and isolated loading/error states
+- Race-safe GUI searches and panel loads so stale responses do not overwrite newer selections
 
 ## Next (optional)
 

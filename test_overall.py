@@ -217,8 +217,10 @@ def test_exclusive_lives_in_supersedes():
 def test_remember_command_without_that(client):
     r = client.post("/api/chat", json={"content": "Remember I prefer Python"})
     body = r.json()
-    # Forced extraction of the payload.
-    assert body.get("is_command") is not True or body.get("remembered") is not None
+    # The explicit wrapper controls the payload, but extraction still writes
+    # the durable preference through the normal pipeline.
+    assert body.get("is_command") is not True
+    assert body.get("remembered")
     py = store.find_entity_by_name("Python")
     assert py is not None
     uid = store.ensure_user_entity()

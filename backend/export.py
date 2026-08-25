@@ -7,6 +7,7 @@ touching the database, and supports two modes:
   - replace : wipe the database first (with explicit confirmation)
 """
 import json
+import math
 import re
 from datetime import datetime
 
@@ -123,9 +124,46 @@ def export_markdown():
 # Import
 # --------------------------------------------------------------------------
 
+def _valid_confidence(value):
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+        and 0.0 <= float(value) <= 1.0
+    )
+
+
+def _valid_id(value, allow_none=False):
+    return (allow_none and value is None) or (
+        isinstance(value, int) and not isinstance(value, bool)
+    )
+
+
+def _valid_embedding(value):
+    if value is None:
+        return True
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+    return store.vec_from_json(value) is not None
+
+
+def _valid_json_list(value, item_type=int):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+    return isinstance(value, list) and all(
+        isinstance(item, item_type) and not (item_type is int and isinstance(item, bool))
+        for item in value
+    )
+
+
 def validate_payload(data):
-    """Validate a JSON export before it touches the database. Returns
-    (ok, error_message)."""
+    """Validate an export completely before it touches the database."""
     if not isinstance(data, dict):
         return False, "export must be a JSON object"
     if data.get("format") != EXPORT_FORMAT:
@@ -133,22 +171,90 @@ def validate_payload(data):
     for key in ("entities", "relationships"):
         if key not in data or not isinstance(data[key], list):
             return False, f"missing or invalid '{key}' list"
-    for e in data["entities"]:
-        if not isinstance(e, dict) or not e.get("name"):
-            return False, "entities must be objects with a 'name'"
-        if not isinstance(e.get("confidence", 0.8), (int, float)):
-            return False, "entity 'confidence' must be a number"
-    for r in data["relationships"]:
-        if not isinstance(r, dict) or "source_id" not in r or "target_id" not in r \
-                or "relation" not in r:
-            return False, "relationships must have source_id, target_id and relation"
-    for key in ("memories", "messages", "conversations", "facts"):
+    for key in ("conversations", "messages", "memories", "facts"):
         if key in data and not isinstance(data[key], list):
             return False, f"'{key}' must be a list when present"
+
+    for e in data["entities"]:
+        if not isinstance(e, dict) or not isinstance(e.get("name"), str) \
+                or not e["name"].strip():
+            return False, "entities must be objects with a non-empty text 'name'"
+        if e.get("type") is not None and not isinstance(e.get("type"), str):
+            return False, "entity 'type' must be text"
+        if e.get("description") is not None and not isinstance(e.get("description"), str):
+            return False, "entity 'description' must be text"
+        if not _valid_confidence(e.get("confidence", 0.8)):
+            return False, "entity 'confidence' must be a number between 0 and 1"
+        if e.get("aliases") is not None and not _valid_json_list(e["aliases"], str):
+            return False, "entity 'aliases' must be a list of text"
+        if not _valid_embedding(e.get("embedding")):
+            return False, "entity 'embedding' must be a numeric vector"
+        if e.get("id") is not None and not _valid_id(e["id"]):
+            return False, "entity 'id' must be an integer"
+        if e.get("source_message_id") is not None and not _valid_id(e["source_message_id"]):
+            return False, "entity 'source_message_id' must be an integer"
+        if e.get("status") is not None and e["status"] not in ("active", "superseded"):
+            return False, "entity 'status' must be 'active' or 'superseded'"
+
+    for r in data["relationships"]:
+        if not isinstance(r, dict) or not _valid_id(r.get("source_id")) \
+                or not _valid_id(r.get("target_id")):
+            return False, "relationships must have integer source_id and target_id"
+        if not isinstance(r.get("relation"), str) or not r["relation"].strip():
+            return False, "relationship 'relation' must be non-empty text"
+        if not _valid_confidence(r.get("confidence", 0.8)):
+            return False, "relationship 'confidence' must be a number between 0 and 1"
+        if r.get("source_message_id") is not None and not _valid_id(r["source_message_id"]):
+            return False, "relationship 'source_message_id' must be an integer"
+        if r.get("status") is not None and r["status"] not in ("active", "superseded"):
+            return False, "relationship 'status' must be 'active' or 'superseded'"
+
+    for c in data.get("conversations") or []:
+        if not isinstance(c, dict):
+            return False, "conversations must contain objects"
+        if c.get("title") is not None and not isinstance(c["title"], str):
+            return False, "conversation 'title' must be text"
+        if c.get("id") is not None and not _valid_id(c["id"]):
+            return False, "conversation 'id' must be an integer"
+        for key in ("pinned", "archived"):
+            if c.get(key) is not None and not isinstance(c[key], (bool, int)):
+                return False, f"conversation '{key}' must be a boolean"
+
+    for m in data.get("messages") or []:
+        if not isinstance(m, dict) or not isinstance(m.get("content"), str):
+            return False, "messages must contain objects with text content"
+        if m.get("role") is not None and not isinstance(m["role"], str):
+            return False, "message 'role' must be text"
+        if m.get("id") is not None and not _valid_id(m["id"]):
+            return False, "message 'id' must be an integer"
+        if m.get("conversation_id") is not None and not _valid_id(m["conversation_id"]):
+            return False, "message 'conversation_id' must be an integer"
+        if m.get("extracted") is not None and not _valid_id(m["extracted"]):
+            return False, "message 'extracted' must be an integer"
+        if not _valid_embedding(m.get("embedding")):
+            return False, "message 'embedding' must be a numeric vector"
+
+    for m in data.get("memories") or []:
+        if not isinstance(m, dict) or not isinstance(m.get("text"), str) \
+                or not m["text"].strip():
+            return False, "memories must contain objects with text"
+        if m.get("kind") is not None and not isinstance(m["kind"], str):
+            return False, "memory 'kind' must be text"
+        if m.get("entity_ids") is not None and not _valid_json_list(m["entity_ids"], int):
+            return False, "memory 'entity_ids' must be a list of integers"
+        if m.get("message_id") is not None and not _valid_id(m["message_id"]):
+            return False, "memory 'message_id' must be an integer"
+        if not _valid_confidence(m.get("confidence", 0.8)):
+            return False, "memory 'confidence' must be a number between 0 and 1"
+
+    if "facts" in data and not isinstance(data["facts"], list):
+        return False, "'facts' must be a list when present"
+    if data.get("settings") is not None and not isinstance(data["settings"], dict):
+        return False, "'settings' must be an object when present"
     return True, None
 
 
-def _apply_entity_flags(eid, e):
+def _apply_entity_flags(eid, e, apply_meta=False):
     fields = {}
     if e.get("status"):
         fields["status"] = e["status"]
@@ -156,16 +262,23 @@ def _apply_entity_flags(eid, e):
         fields["pinned"] = 1 if e.get("pinned") else 0
     if e.get("important") is not None:
         fields["important"] = 1 if e.get("important") else 0
-    if e.get("aliases"):
+    if e.get("aliases") is not None:
         try:
             aliases = e["aliases"] if isinstance(e["aliases"], list) else json.loads(e["aliases"])
             fields["aliases"] = aliases
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, json.JSONDecodeError):
+            pass
+    if apply_meta and e.get("meta") is not None:
+        try:
+            meta = e["meta"] if isinstance(e["meta"], dict) else json.loads(e["meta"])
+            if isinstance(meta, dict):
+                fields["meta"] = meta
+        except (ValueError, TypeError, json.JSONDecodeError):
             pass
     if fields:
         store.update_entity(eid, **fields)
     emb = e.get("embedding")
-    if emb:
+    if emb is not None:
         payload = emb if isinstance(emb, str) else json.dumps(emb)
         db.execute("UPDATE entities SET embedding=? WHERE id=?", (payload, eid))
 
@@ -183,10 +296,11 @@ def _entity_name(eid):
     return row["name"] if row else f"#{eid}"
 
 
-def _import_entities(data):
+def _import_entities(data, message_map=None, preserve_times=False):
     user_id = store.ensure_user_entity()
     id_map = {}
     created, merged, skipped = 0, 0, []
+    message_map = message_map or {}
     for e in data["entities"]:
         name = (e.get("name") or "").strip()
         if not name:
@@ -204,6 +318,7 @@ def _import_entities(data):
         eid, is_new = store.upsert_entity(
             name, e.get("type", "concept"), e.get("description", ""),
             confidence=conf,
+            source_message_id=message_map.get(e.get("source_message_id")),
         )
         if eid is None:
             skipped.append({"reason": "rejected", "name": name})
@@ -214,12 +329,21 @@ def _import_entities(data):
             merged += 1
         if e.get("id") is not None:
             id_map[e["id"]] = eid
-        _apply_entity_flags(eid, e)
+        _apply_entity_flags(eid, e, apply_meta=preserve_times or is_new)
+        if preserve_times and is_new:
+            created_at = e.get("created_at")
+            updated_at = e.get("updated_at") or created_at
+            if isinstance(created_at, str) and isinstance(updated_at, str):
+                db.execute(
+                    "UPDATE entities SET created_at=?, updated_at=? WHERE id=?",
+                    (created_at, updated_at, eid),
+                )
     return id_map, created, merged, skipped
 
 
-def _import_relationships(data, id_map, apply_exclusive=True):
+def _import_relationships(data, id_map, message_map=None, apply_exclusive=True):
     added = 0
+    message_map = message_map or {}
     duplicates = 0
     skipped = []
     conflicts = []
@@ -267,7 +391,11 @@ def _import_relationships(data, id_map, apply_exclusive=True):
             conf = float(r.get("confidence", 0.8))
         except (TypeError, ValueError):
             conf = 0.8
-        rid = store.add_relationship(sid, tid, rel, confidence=conf)
+        rid = store.add_relationship(
+            sid, tid, rel, confidence=conf,
+            source_message_id=message_map.get(r.get("source_message_id")),
+            created_at=r.get("created_at") if isinstance(r.get("created_at"), str) else None,
+        )
         if r.get("status") and r["status"] != "active" and rid:
             store.update_relationship(rid, status=r["status"])
         if not existed:
@@ -275,6 +403,72 @@ def _import_relationships(data, id_map, apply_exclusive=True):
         else:
             duplicates += 1
     return added, skipped, conflicts, duplicates
+
+
+def _import_conversations(data):
+    """Import conversations and return old-id -> local-id mapping.
+
+    Matching the stable exported timestamps makes repeating the same merge
+    idempotent while still allowing genuinely new conversations through.
+    """
+    conv_map = {}
+    for c in data.get("conversations") or []:
+        title = c.get("title") or ""
+        created_at = c.get("created_at")
+        existing = None
+        if isinstance(created_at, str):
+            existing = db.query_one(
+                "SELECT id FROM conversations WHERE title=? AND created_at=?",
+                (title, created_at),
+            )
+        if existing:
+            new_id = existing["id"]
+        else:
+            new_id = store.create_conversation(
+                title=title,
+                created_at=created_at if isinstance(created_at, str) else None,
+                updated_at=c.get("updated_at") if isinstance(c.get("updated_at"), str) else None,
+                pinned=c.get("pinned", 0), archived=c.get("archived", 0),
+            )
+        if c.get("id") is not None:
+            conv_map[c["id"]] = new_id
+    return conv_map
+
+
+def _import_messages(data, conv_map):
+    """Import source messages and return old-id -> local-id mapping."""
+    message_map = {}
+    for m in data.get("messages") or []:
+        content = m.get("content")
+        if not isinstance(content, str):
+            continue
+        cid = conv_map.get(m.get("conversation_id"))
+        created_at = m.get("created_at") if isinstance(m.get("created_at"), str) else None
+        existing = None
+        if created_at is not None:
+            existing = db.query_one(
+                "SELECT id FROM messages WHERE conversation_id IS ? AND role=? "
+                "AND content=? AND created_at=?",
+                (cid, m.get("role") or "user", content, created_at),
+            )
+        if existing:
+            new_mid = existing["id"]
+        else:
+            meta = m.get("meta") or {}
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    meta = {}
+            embedding = store.vec_from_json(m.get("embedding"))
+            new_mid = store.add_message(
+                m.get("role") or "user", content, conversation_id=cid,
+                embedding=embedding, extracted=int(m.get("extracted") or 0),
+                meta=meta, created_at=created_at,
+            )
+        if m.get("id") is not None:
+            message_map[m["id"]] = new_mid
+    return message_map
 
 
 def _import_memories(data, id_map, message_map=None, dedup=True):
@@ -311,9 +505,10 @@ def _import_memories(data, id_map, message_map=None, dedup=True):
             conf = float(m.get("confidence", 0.8))
         except (TypeError, ValueError):
             conf = 0.8
+        created_at = m.get("created_at") if isinstance(m.get("created_at"), str) else None
         store.add_memory(m.get("kind") or "entity", m["text"], entity_ids=eids,
-                         message_id=mid, confidence=conf,
-                         meta=meta)
+                         message_id=mid, confidence=conf, meta=meta,
+                         created_at=created_at)
         existing.add(key)
         added += 1
     return added, skipped
@@ -349,59 +544,85 @@ def _import_summary(mode, created, merged, added_rels, added_mems,
     }
 
 
+_IMPORTABLE_SETTINGS = {
+    "llm_model", "embedding_model", "ollama_base_url", "confidence_threshold",
+    "merge_similarity", "auto_memory", "auto_backup_hours", "theme",
+}
+
+
+def _apply_import_settings(data):
+    """Restore user-facing settings without restoring session/backup metadata."""
+    settings = data.get("settings") or {}
+    for key in _IMPORTABLE_SETTINGS:
+        if key not in settings:
+            continue
+        value = settings[key]
+        if key in ("llm_model", "embedding_model", "theme"):
+            if isinstance(value, str) and value.strip():
+                db.set_setting(key, value.strip())
+        elif key == "ollama_base_url":
+            if isinstance(value, str):
+                from urllib.parse import urlparse
+                parsed = urlparse(value.strip())
+                if parsed.scheme in ("http", "https") and parsed.netloc:
+                    db.set_setting(key, value.strip().rstrip("/"))
+        elif key in ("confidence_threshold", "merge_similarity", "auto_backup_hours"):
+            if isinstance(value, (int, float)) and not isinstance(value, bool) \
+                    and math.isfinite(float(value)):
+                db.set_setting(key, value)
+        elif key == "auto_memory" and isinstance(value, bool):
+            db.set_setting(key, value)
+
+
 def import_merge(data):
-    """Merge-import: upsert entities (by name) and add relationships.
-    Preserves existing data. Returns a summary with skip/conflict details."""
+    """Merge-import without deleting local data, including source messages."""
     ok, err = validate_payload(data)
     if not ok:
         return {"ok": False, "error": err}
 
-    id_map, created, merged, skipped_ents = _import_entities(data)
-    added_rels, skipped_rels, conflicts, duplicates = _import_relationships(data, id_map)
-    added_mems, skipped_mems = _import_memories(data, id_map, dedup=True)
+    conv_map = _import_conversations(data)
+    message_map = _import_messages(data, conv_map)
+    id_map, created, merged, skipped_ents = _import_entities(data, message_map=message_map)
+    added_rels, skipped_rels, conflicts, duplicates = _import_relationships(
+        data, id_map, message_map=message_map,
+    )
+    added_mems, skipped_mems = _import_memories(
+        data, id_map, message_map=message_map, dedup=True,
+    )
     return _import_summary("merge", created, merged, added_rels, added_mems,
                            skipped_ents, skipped_rels, conflicts, duplicates, skipped_mems)
 
 
 def import_replace(data):
-    """Replace-import: wipe and load. Returns a summary."""
+    """Replace-import: wipe and load while preserving traceable source data."""
     ok, err = validate_payload(data)
     if not ok:
         return {"ok": False, "error": err}
 
     for t in ("relationships", "entities", "memories", "messages", "conversations"):
         db.execute(f"DELETE FROM {t}")
+    store.clear_undo_stack()
     store.ensure_user_entity()
 
-    conv_map = {}
-    for c in data.get("conversations") or []:
-        if not isinstance(c, dict):
-            continue
-        new_id = store.create_conversation(c.get("title") or "")
-        if c.get("id") is not None:
-            conv_map[c["id"]] = new_id
-
-    msg_map = {}
-    for m in data.get("messages") or []:
-        if not isinstance(m, dict) or not m.get("content"):
-            continue
-        cid = conv_map.get(m.get("conversation_id"))
-        raw_meta = m.get("meta") or {}
-        if isinstance(raw_meta, str):
-            try:
-                raw_meta = json.loads(raw_meta)
-            except ValueError:
-                raw_meta = {}
-        new_mid = store.add_message(
-            m.get("role") or "user", m["content"], conversation_id=cid,
-            extracted=int(m.get("extracted") or 0), meta=raw_meta,
-        )
-        if m.get("id") is not None:
-            msg_map[m["id"]] = new_mid
-
-    id_map, created, merged, skipped_ents = _import_entities(data)
-    added_rels, skipped_rels, conflicts, duplicates = _import_relationships(data, id_map)
-    added_mems, skipped_mems = _import_memories(data, id_map, message_map=msg_map, dedup=False)
+    conv_map = _import_conversations(data)
+    message_map = _import_messages(data, conv_map)
+    id_map, created, merged, skipped_ents = _import_entities(
+        data, message_map=message_map, preserve_times=True,
+    )
+    added_rels, skipped_rels, conflicts, duplicates = _import_relationships(
+        data, id_map, message_map=message_map,
+    )
+    added_mems, skipped_mems = _import_memories(
+        data, id_map, message_map=message_map, dedup=False,
+    )
+    _apply_import_settings(data)
+    # current_conversation_id is deliberately not exported. Point the new
+    # session at the newest imported conversation rather than a stale id.
+    imported_ids = [
+        cid for cid in conv_map.values()
+        if not (store.conversation_row(cid) or {}).get("archived", 0)
+    ]
+    db.set_setting("current_conversation_id", imported_ids[-1] if imported_ids else None)
     return _import_summary("replace", created, merged, added_rels, added_mems,
                            skipped_ents, skipped_rels, conflicts, duplicates, skipped_mems)
 
@@ -409,7 +630,7 @@ def import_replace(data):
 def import_from_json(text, mode="merge"):
     try:
         data = json.loads(text)
-    except ValueError as e:
+    except (TypeError, ValueError, json.JSONDecodeError) as e:
         return {"ok": False, "error": f"invalid JSON: {e}"}
     if mode == "replace":
         return import_replace(data)

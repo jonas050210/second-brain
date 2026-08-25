@@ -135,6 +135,29 @@ def test_note_chunk_split_and_import():
     assert store.find_entity_by_name("Python") is not None
 
 
+def test_replace_import_preserves_source_messages_and_conversation():
+    cid = store.create_conversation("Python notes", pinned=1, archived=1)
+    mid = store.add_message("user", "I am learning Python", conversation_id=cid)
+    extract.extract("I am learning Python", source_message_id=mid)
+    data = json.loads(export.export_json())
+
+    result = export.import_from_json(json.dumps(data), mode="replace")
+    assert result["ok"] is True
+    imported = store.conversation_summaries(archived=None)
+    assert len(imported) == 1
+    assert imported[0]["title"] == "Python notes"
+    assert imported[0]["pinned"] == 1 and imported[0]["archived"] == 1
+    imported_messages = store.conversation_messages(imported[0]["id"])
+    assert imported_messages
+    imported_mid = imported_messages[0]["id"]
+    py = store.find_entity_by_name("Python")
+    assert py["source_message_id"] == imported_mid
+    rel = db.query_one("SELECT * FROM relationships WHERE relation='learning'")
+    assert rel["source_message_id"] == imported_mid
+    mem = db.query_one("SELECT * FROM memories WHERE message_id IS NOT NULL")
+    assert mem["message_id"] == imported_mid
+
+
 def test_import_merge_reports_exclusive_conflict_and_skips():
     extract.extract("I live in Berlin")
     uid = store.ensure_user_entity()

@@ -195,7 +195,7 @@ def set_setting(key, value):
     execute(
         "INSERT INTO settings(key, value) VALUES(?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (key, json.dumps(value) if not isinstance(value, str) else value),
+        (key, None if value is None else (json.dumps(value) if not isinstance(value, str) else value)),
     )
 
 

@@ -72,9 +72,10 @@ def query_terms(query_text):
 
 def json_loads(s):
     try:
-        return json.loads(s or "[]")
-    except ValueError:
+        value = json.loads(s or "[]")
+    except (TypeError, ValueError, json.JSONDecodeError):
         return []
+    return value if isinstance(value, (list, dict)) else []
 
 
 # --------------------------------------------------------------------------
@@ -333,6 +334,9 @@ def search(query_text, filters=None, multi_hop_depth=3):
             seen.add(f["text"])
             dedup.append(f)
 
+    # Entity filters must constrain facts as well as the entity result list;
+    # otherwise the UI can show a filtered list beside an unfiltered answer.
+    dedup = _filter_direct_facts(dedup, filters)
     dedup = _rank_facts(dedup, query_text)
 
     return {"intent": intent, "entities": entities, "facts": dedup,
@@ -419,7 +423,80 @@ _YN_REL = {
 }
 
 
-def _direct_fact_answer(query_text):
+def _entity_matches_filters(entity, filters):
+    """Apply search filters to an entity used by a direct answer."""
+    if not filters:
+        return True
+    if filters.get("type") and entity.get("type") != filters["type"]:
+        return False
+    if filters.get("min_confidence") is not None \
+            and entity.get("confidence", 0) < filters["min_confidence"]:
+        return False
+    if filters.get("status") and entity.get("status", "active") != filters["status"]:
+        return False
+    for flag in ("pinned", "important"):
+        if filters.get(flag) is not None and bool(entity.get(flag, 0)) != bool(filters[flag]):
+            return False
+    created = (entity.get("created_at") or "")[:10]
+    updated = (entity.get("updated_at") or created)[:10]
+    if filters.get("date_from") and updated < str(filters["date_from"])[:10]:
+        return False
+    if filters.get("date_to") and created > str(filters["date_to"])[:10]:
+        return False
+    if filters.get("source"):
+        source = str(filters["source"])
+        if source.lower() == "demo":
+            try:
+                meta = json_loads(entity.get("meta"))
+            except Exception:
+                meta = {}
+            if not meta.get("demo"):
+                return False
+        else:
+            mid = entity.get("source_message_id")
+            msg = store.message_by_id(mid) if mid else None
+            if not msg or str(msg.get("conversation_id")) != source:
+                return False
+    return True
+
+
+def _filter_direct_facts(facts, filters):
+    """Keep facts that have at least one endpoint matching active filters."""
+    if not filters:
+        return list(facts)
+    result = []
+    for fact in facts:
+        if filters.get("status") and fact.get("status", "active") != filters["status"]:
+            continue
+        if filters.get("min_confidence") is not None \
+                and (fact.get("confidence") or 0) < filters["min_confidence"]:
+            continue
+        if filters.get("source"):
+            source = str(filters["source"])
+            source_message = store.message_by_id(fact.get("source_message_id")) if fact.get("source_message_id") else None
+            if source.lower() == "demo":
+                message_meta = json_loads(source_message.get("meta")) if source_message else {}
+                message_demo = isinstance(message_meta, dict) and message_meta.get("demo")
+                entity_demo = False
+                for eid in fact.get("entities", []):
+                    entity = store.entity_row(eid)
+                    if entity:
+                        entity_meta = json_loads(entity.get("meta"))
+                        if isinstance(entity_meta, dict) and entity_meta.get("demo"):
+                            entity_demo = True
+                            break
+                if not (message_demo or entity_demo):
+                    continue
+            elif not source_message or str(source_message.get("conversation_id")) != source:
+                continue
+        entities = [store.entity_row(eid) for eid in fact.get("entities", [])]
+        entities = [entity for entity in entities if entity]
+        if entities and any(_entity_matches_filters(entity, filters) for entity in entities):
+            result.append(fact)
+    return result
+
+
+def _direct_fact_answer(query_text, filters=None):
     """Yes/no questions about a specific stored fact. Never invents."""
     m = _YN_FACT.match((query_text or "").strip())
     if not m:
@@ -442,7 +519,9 @@ def _direct_fact_answer(query_text):
         "status": "unknown",
         "sources": [],
     }
-    if not target:
+    if not target or not _entity_matches_filters(target, filters):
+        return unknown
+    if filters and filters.get("status") == "superseded":
         return unknown
     row = db.query_one(
         "SELECT * FROM relationships WHERE source_id=? AND target_id=? "
@@ -605,13 +684,13 @@ def _unknown(query_text):
     }
 
 
-def _list_intent_answer(query_text):
+def _list_intent_answer(query_text, filters=None):
     """Direct answers for where I live / who I know / what I prefer."""
     q = (query_text or "").strip()
     for rx, intent, _needle in _LIST_QUESTIONS:
         if not rx.match(q):
             continue
-        facts = intent_facts(intent)
+        facts = _filter_direct_facts(intent_facts(intent), filters)
         if not facts:
             return _unknown(query_text)
         return {
@@ -623,7 +702,7 @@ def _list_intent_answer(query_text):
     return None
 
 
-def _uses_of_answer(query_text):
+def _uses_of_answer(query_text, filters=None):
     m = _USES_OF.match((query_text or "").strip())
     if not m:
         return None
@@ -631,6 +710,7 @@ def _uses_of_answer(query_text):
     if not ent:
         return _unknown(query_text)
     facts = [f for f in graph_facts_for_entity(ent["id"]) if " uses " in f["text"]]
+    facts = _filter_direct_facts(facts, filters)
     if not facts:
         return {
             "text": f"I don't have a stored uses-relationship for {ent['name']}.",
@@ -678,7 +758,7 @@ _COUNT_Q = re.compile(
 )
 
 
-def _used_by_answer(query_text):
+def _used_by_answer(query_text, filters=None):
     """Inverse of uses-of: which stored things use this entity."""
     m = _USED_BY.match((query_text or "").strip())
     if not m:
@@ -688,6 +768,7 @@ def _used_by_answer(query_text):
         return _unknown(query_text)
     needle = f' uses {ent["name"]}'
     facts = [f for f in graph_facts_for_entity(ent["id"]) if needle in f.get("text", "")]
+    facts = _filter_direct_facts(facts, filters)
     if not facts:
         return {
             "text": f'I don\'t have a stored uses-relationship pointing at {ent["name"]}.',
@@ -752,7 +833,7 @@ def _when_answer(query_text):
     }
 
 
-def _stopped_answer(query_text):
+def _stopped_answer(query_text, filters=None):
     """Active history: superseded facts. Never invents."""
     if not _STOPPED_Q.match((query_text or "").strip()):
         return None
@@ -767,7 +848,10 @@ def _stopped_answer(query_text):
         return _unknown(query_text)
     facts = [{"text": f'{r["sname"]} {r["rel"]} {r["tname"]} (no longer active)',
               "confidence": r["c"], "entities": [r["sid"], r["tid"]],
-              "source_message_id": r["smid"]} for r in rels]
+              "source_message_id": r["smid"], "status": "superseded"} for r in rels]
+    facts = _filter_direct_facts(facts, filters)
+    if not facts:
+        return _unknown(query_text)
     return {
         "text": "; ".join(f["text"] for f in facts[:8]) + ". (from stored memory)",
         "status": "known",
@@ -776,7 +860,7 @@ def _stopped_answer(query_text):
     }
 
 
-def _changed_answer(query_text):
+def _changed_answer(query_text, filters=None):
     """Recent superseded / conflict / command memories from the last 7 days."""
     if not _CHANGED_Q.match((query_text or "").strip()):
         return None
@@ -792,6 +876,9 @@ def _changed_answer(query_text):
     facts = [{"text": m["text"], "confidence": m.get("confidence") or 0.8,
               "entities": json_loads(m.get("entity_ids")),
               "source_message_id": m.get("message_id")} for m in mems]
+    facts = _filter_direct_facts(facts, filters)
+    if not facts:
+        return _unknown(query_text)
     return {
         "text": "; ".join(f["text"] for f in facts[:8]) + ". (from stored memory)",
         "status": "known",
@@ -863,24 +950,24 @@ def _count_answer(query_text):
 
 def retrieve_answer(query_text, filters=None):
     """Deterministic retrieval. `final` answers skip the LLM composer."""
-    direct = _direct_fact_answer(query_text)
+    direct = _direct_fact_answer(query_text, filters=filters)
     if direct is not None:
         out = dict(direct)
         out["final"] = True
         return out
-    stopped = _stopped_answer(query_text)
+    stopped = _stopped_answer(query_text, filters=filters)
     if stopped is not None:
         return stopped
-    changed = _changed_answer(query_text)
+    changed = _changed_answer(query_text, filters=filters)
     if changed is not None:
         return changed
-    listed = _list_intent_answer(query_text)
+    listed = _list_intent_answer(query_text, filters=filters)
     if listed is not None:
         return listed
-    uses = _uses_of_answer(query_text)
+    uses = _uses_of_answer(query_text, filters=filters)
     if uses is not None:
         return uses
-    used_by = _used_by_answer(query_text)
+    used_by = _used_by_answer(query_text, filters=filters)
     if used_by is not None:
         return used_by
     when = _when_answer(query_text)

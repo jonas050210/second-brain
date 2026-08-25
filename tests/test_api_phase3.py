@@ -73,6 +73,17 @@ def test_import_merge_endpoint(client):
     assert r.json()["ok"] is True
 
 
+def test_replace_import_creates_safety_backup(client):
+    _seed(client)
+    data = json.loads(client.get("/api/export/json").text)
+    response = client.post("/api/import", json={
+        "data": json.dumps(data), "mode": "replace", "confirm": True,
+    })
+    assert response.status_code == 200
+    safety = response.json().get("safety_backup")
+    assert safety and safety != ""
+
+
 def test_import_invalid_rejected(client):
     r = client.post("/api/import", json={"data": "not json", "mode": "merge"})
     assert r.json()["ok"] is False
