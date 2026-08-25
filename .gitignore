@@ -1,0 +1,22 @@
+# Personal knowledge database (do NOT commit your memory)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Tests / caches
+.pytest_cache/
+.playwright/
+node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

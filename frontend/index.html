@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Second Brain — Local AI Knowledge Graph</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="vendor/cytoscape.min.js"></script>
+</head>
+<body>
+  <div class="bg-orbs" aria-hidden="true">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">◈</div>
+        <div class="brand-text">
+          <span class="brand-name">Second Brain</span>
+          <span class="brand-sub">local knowledge OS</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-view="dashboard">
+          <span class="nav-ico">▦</span> Dashboard
+        </button>
+        <button class="nav-item" data-view="chat">
+          <span class="nav-ico">✉</span> Chat
+        </button>
+        <button class="nav-item" data-view="graph">
+          <span class="nav-ico">◉</span> Knowledge Graph
+        </button>
+        <button class="nav-item" data-view="memory">
+          <span class="nav-ico">🕘</span> Memory
+        </button>
+        <button class="nav-item" data-view="search">
+          <span class="nav-ico">⌕</span> Search
+        </button>
+        <button class="nav-item" data-view="settings">
+          <span class="nav-ico">⚙</span> Settings
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="status" id="status-indicator">
+          <span class="status-dot"></span>
+          <span class="status-text">checking Ollama…</span>
+        </div>
+        <div class="privacy-badge" id="privacy-badge">LOCAL · PRIVATE</div>
+        <div class="model-line" id="model-line"></div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <!-- ============ DASHBOARD ============ -->
+      <section class="view" id="view-dashboard">
+        <header class="view-head">
+          <h1>Dashboard</h1>
+          <p class="view-sub">Your knowledge, growing itself.</p>
+        </header>
+        <div class="stats-grid" id="stats-grid"></div>
+
+        <div class="dash-cols">
+          <div class="panel">
+            <div class="panel-head"><h2>Memory growth <span class="muted">(14 days)</span></h2></div>
+            <div class="panel-body">
+              <div id="growth-chart"></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Memory types</h2></div>
+            <div class="panel-body" id="type-breakdown"></div>
+          </div>
+        </div>
+
+        <div class="dash-cols">
+          <div class="panel">
+            <div class="panel-head"><h2>Recent memories</h2></div>
+            <div class="panel-body" id="recent-memories"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Most connected</h2></div>
+            <div class="panel-body" id="top-entities"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CHAT ============ -->
+      <section class="view" id="view-chat">
+        <header class="view-head">
+          <div>
+            <h1>Chat</h1>
+            <p class="view-sub">Just talk to it — your knowledge graph builds itself.</p>
+          </div>
+          <div class="graph-tools">
+            <button class="btn-ghost" id="chat-new">New conversation</button>
+          </div>
+        </header>
+        <div class="chat-wrap">
+          <div class="chat-scroll" id="chat-scroll">
+            <div class="chat-empty" id="chat-empty">
+              <div class="chat-empty-mark">◈</div>
+              <p>Say something meaningful and I'll remember it.<br/>
+              <span class="muted">Try: “I'm learning Python and want to build AI agents.”</span></p>
+            </div>
+            <div id="chat-messages"></div>
+          </div>
+          <div class="chat-inputbar">
+            <textarea id="chat-input" rows="1" placeholder="Talk to your Second Brain…"></textarea>
+            <button id="chat-send" class="btn-primary">Send</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ GRAPH ============ -->
+      <section class="view" id="view-graph">
+        <header class="view-head graph-head">
+          <div>
+            <h1>Knowledge Graph</h1>
+            <p class="view-sub" id="graph-sub">Click a node to inspect it.</p>
+          </div>
+          <div class="graph-tools">
+            <input id="graph-search" class="input" type="text" placeholder="Search nodes…" />
+            <button class="btn-ghost" id="graph-reset">Reset view</button>
+          </div>
+        </header>
+        <div class="filter-bar graph-filters">
+          <select id="gf-type" class="input">
+            <option value="">All types</option>
+          </select>
+          <select id="gf-relation" class="input">
+            <option value="">All relations</option>
+          </select>
+          <label class="toggle small">
+            <input type="checkbox" id="gf-superseded" />
+            <span>Show superseded</span>
+          </label>
+          <label class="toggle small">
+            <input type="checkbox" id="gf-pinned" />
+            <span>Pinned only</span>
+          </label>
+          <label class="toggle small">
+            <input type="checkbox" id="gf-important" />
+            <span>Important only</span>
+          </label>
+          <button class="btn-ghost" id="graph-apply">Apply filters</button>
+        </div>
+        <div class="graph-layout">
+          <div class="graph-legend" id="graph-legend"></div>
+          <div id="cy"></div>
+        </div>
+      </section>
+
+      <!-- ============ MEMORY ============ -->
+      <section class="view" id="view-memory">
+        <header class="view-head">
+          <div>
+            <h1>Memory Timeline</h1>
+            <p class="view-sub">When information entered your brain — with sources.</p>
+          </div>
+        </header>
+        <div class="filter-bar">
+          <select id="mem-kind" class="input">
+            <option value="">All kinds</option>
+            <option value="entity">Entities</option>
+            <option value="relationship">Relationships</option>
+            <option value="update">Updates</option>
+            <option value="superseded">Superseded</option>
+            <option value="conflict">Conflicts</option>
+            <option value="command">Commands</option>
+          </select>
+          <input id="mem-entity" class="input" type="text" placeholder="Filter by entity…" />
+          <input id="mem-date" class="input" type="date" />
+          <button class="btn-ghost" id="mem-clear">Clear</button>
+        </div>
+        <div class="timeline" id="timeline"></div>
+      </section>
+
+      <!-- ============ SEARCH ============ -->
+      <section class="view" id="view-search">
+        <header class="view-head">
+          <h1>Search</h1>
+          <p class="view-sub">Unified memory: keyword + semantic + graph.</p>
+        </header>
+        <div class="search-bar">
+          <input id="search-input" class="input input-lg" type="text" placeholder="What projects am I working on?" />
+          <button id="search-btn" class="btn-primary">Ask</button>
+        </div>
+        <div class="filter-bar search-filters">
+          <select id="sf-type" class="input">
+            <option value="">Any type</option>
+          </select>
+          <select id="sf-confidence" class="input">
+            <option value="">Any confidence</option>
+            <option value="0.5">≥ 50%</option>
+            <option value="0.7">≥ 70%</option>
+            <option value="0.9">≥ 90%</option>
+          </select>
+          <select id="sf-status" class="input">
+            <option value="">Any status</option>
+            <option value="active">Active</option>
+            <option value="superseded">Superseded</option>
+          </select>
+          <label class="toggle small">
+            <input type="checkbox" id="sf-pinned" />
+            <span>Pinned</span>
+          </label>
+          <label class="toggle small">
+            <input type="checkbox" id="sf-important" />
+            <span>Important</span>
+          </label>
+        </div>
+        <div id="search-answer" class="panel search-answer" style="display:none"></div>
+        <div id="search-sources" class="panel" style="display:none"></div>
+        <div id="search-results"></div>
+      </section>
+
+      <!-- ============ SETTINGS ============ -->
+      <section class="view" id="view-settings">
+        <header class="view-head">
+          <h1>Settings</h1>
+          <p class="view-sub">Swap models and tune memory without touching code.</p>
+        </header>
+
+        <div class="panel">
+          <div class="panel-head"><h2>AI Models</h2></div>
+          <div class="panel-body form">
+            <div class="field-row">
+              <label class="field">
+                <span>LLM (extraction)</span>
+                <input id="set-llm" class="input" type="text" placeholder="qwen3:0.6b" />
+              </label>
+              <label class="field">
+                <span>Embedding model</span>
+                <input id="set-emb" class="input" type="text" placeholder="nomic-embed-text" />
+              </label>
+            </div>
+            <label class="field">
+              <span>Ollama URL</span>
+              <input id="set-ollama-url" class="input" type="text" placeholder="http://localhost:11434" />
+            </label>
+            <button class="btn-primary" id="set-save">Save models</button>
+            <p class="hint" id="set-hint"></p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Memory behavior</h2></div>
+          <div class="panel-body form">
+            <label class="field">
+              <span>Confidence threshold — <span id="conf-val"></span></span>
+              <input id="set-confidence" class="input range" type="range" min="0" max="1" step="0.05" />
+            </label>
+            <label class="field">
+              <span>Duplicate merge threshold — <span id="merge-val"></span></span>
+              <input id="set-merge" class="input range" type="range" min="0.5" max="0.99" step="0.01" />
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="set-auto-memory" />
+              <span>Auto-memory <span class="muted">(extract knowledge from messages automatically)</span></span>
+            </label>
+            <button class="btn-primary" id="set-behavior-save">Save behavior</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Ollama</h2></div>
+          <div class="panel-body" id="ollama-info"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Data</h2></div>
+          <div class="panel-body form">
+            <p class="hint" id="db-path"></p>
+            <div style="display:flex; gap:8px; flex-wrap:wrap">
+              <button class="btn-danger" id="reset-btn">Reset all data</button>
+              <button class="btn-ghost" id="demo-btn">Load demo data</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Memory consolidation</h2></div>
+          <div class="panel-body form">
+            <p class="hint">Summarize clusters of related memories into concise entity summaries. Originals are never deleted.</p>
+            <div class="dash-cols">
+              <div>
+                <button class="btn-primary" id="summarize-all">Summarize now</button>
+                <p class="hint" id="summarize-status"></p>
+              </div>
+              <div id="summarize-candidates"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Export / Import</h2></div>
+          <div class="panel-body form">
+            <div style="display:flex; gap:8px; flex-wrap:wrap">
+              <button class="btn-ghost" id="export-json">Export JSON</button>
+              <button class="btn-ghost" id="export-md">Export Markdown</button>
+            </div>
+            <label class="field">
+              <span>Import JSON <span class="muted">(paste an export)</span></span>
+              <textarea class="input" id="import-data" rows="3" placeholder='{"format":"second-brain", ...}'></textarea>
+            </label>
+            <div style="display:flex; gap:8px">
+              <button class="btn-primary" id="import-merge">Merge import</button>
+              <button class="btn-danger" id="import-replace">Replace database</button>
+            </div>
+            <p class="hint" id="import-status"></p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Backup</h2></div>
+          <div class="panel-body form">
+            <button class="btn-primary" id="backup-now">Create backup</button>
+            <p class="hint" id="backup-status"></p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Entity detail slide-over -->
+  <div class="overlay" id="entity-overlay"></div>
+  <aside class="entity-panel" id="entity-panel">
+    <div class="entity-inner" id="entity-inner"></div>
+  </aside>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
