@@ -14,6 +14,11 @@ Browser  →  FastAPI  →  SQLite
 Reliability over cleverness. The database is the source of truth. The graph
 visualizes the database. RAG never invents personal facts.
 
+`project.md` is the compact orientation map for humans and AI agents: it lists
+files, symbols, routes, views, and tests with short descriptions. It does not
+duplicate the source. `projekt.md` remains the full generated source archive
+for compatibility and explicit deep audits.
+
 ---
 
 ## How it works
@@ -255,6 +260,7 @@ second-brain/
 ├── requirements.txt
 ├── README.md
 ├── ROADMAP
+├── project.md             # compact AI/human project overview
 ├── projekt.md             # full first-party source archive
 ├── .env.example
 ├── .gitignore
