@@ -98,6 +98,13 @@ def test_remember_without_that_is_remember_action():
     assert "prefer Python" in r["payload"]
 
 
+def test_important_command():
+    e = store.create_entity("Rust", "technology")
+    r = commands.handle_command("Important Rust")
+    assert r["ok"] is True
+    assert store.entity_row(e)["important"] == 1
+
+
 def test_stop_remembering_forgets_entity():
     e = store.create_entity("OldFact", "concept")
     r = commands.handle_command("Stop remembering OldFact")

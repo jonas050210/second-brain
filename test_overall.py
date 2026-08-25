@@ -221,6 +221,12 @@ def test_remember_command_without_that(client):
     assert rels and rels[0]["status"] == "active"
 
 
+def test_important_command_modifies_db():
+    rust = store.create_entity("Rust", "technology")
+    assert commands.handle_command("Important Rust")["ok"]
+    assert store.entity_row(rust)["important"] == 1
+
+
 def test_all_memory_commands_modify_db():
     neb = store.create_entity("Nebula", "project")
     rust = store.create_entity("Rust", "technology")
@@ -356,7 +362,9 @@ def test_backup_is_local_and_real():
 
 def test_reset_keeps_only_user(client):
     client.post("/api/chat", json={"content": "I am learning Rust"})
-    client.post("/api/reset")
+    r = client.post("/api/reset", json={"confirm": False})
+    assert r.status_code == 400
+    client.post("/api/reset", json={"confirm": True})
     d = client.get("/api/dashboard").json()
     assert d["entities"] == 1
     assert d["relationships"] == 0

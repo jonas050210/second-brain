@@ -110,6 +110,8 @@ def test_multiword_concepts_not_trimmed():
     r = _run("I am learning Rust and I want to build a game engine")
     names = [e["name"] for e in r["entities"]]
     assert "Game Engine" in names
+    types = {e["name"]: e["type"] for e in r["entities"]}
+    assert types.get("Game Engine") == "project"
 
 
 def test_confidence_threshold_respected(no_ollama, monkeypatch):

@@ -106,6 +106,11 @@ def test_dashboard(client):
     assert "growth" in d and len(d["growth"]) == 14
 
 
+def test_settings_rejects_non_http_ollama_url(client):
+    r = client.post("/api/settings", json={"ollama_base_url": "file:///etc/passwd"})
+    assert r.status_code == 400
+
+
 def test_settings_roundtrip(client):
     r = client.post("/api/settings", json={"llm_model": "qwen3:1.7b",
                                            "confidence_threshold": 0.5,
@@ -116,9 +121,14 @@ def test_settings_roundtrip(client):
     assert s["auto_memory"] is False
 
 
+def test_reset_requires_confirmation(client):
+    r = client.post("/api/reset", json={"confirm": False})
+    assert r.status_code == 400
+
+
 def test_reset(client):
     client.post("/api/chat", json={"content": "I am learning Rust"})
-    client.post("/api/reset")
+    client.post("/api/reset", json={"confirm": True})
     d = client.get("/api/dashboard").json()
     assert d["entities"] == 1  # only User remains
     assert d["relationships"] == 0

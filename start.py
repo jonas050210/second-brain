@@ -166,6 +166,20 @@ def detect_environment() -> dict:
     return info
 
 
+def probe_ollama() -> dict:
+    """Non-fatal Ollama diagnostic. Never downloads models."""
+    url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    try:
+        import requests
+        r = requests.get(url.rstrip("/") + "/api/tags", timeout=2)
+        if r.status_code != 200:
+            return {"available": False, "url": url, "error": f"HTTP {r.status_code}"}
+        models = [m.get("name") for m in r.json().get("models", [])]
+        return {"available": True, "url": url, "models": models}
+    except Exception as exc:
+        return {"available": False, "url": url, "error": str(exc) or exc.__class__.__name__}
+
+
 def print_env(info: dict) -> None:
     print("Second Brain — environment")
     print(f"  Python     : {info['python']} ({info['executable']})")
@@ -173,6 +187,17 @@ def print_env(info: dict) -> None:
     print(f"  Project    : {info['project']}")
     print(f"  Project venv: {'yes' if info['venv'] else 'no'}")
     print(f"  Missing    : {', '.join(info['missing']) if info['missing'] else 'none'}")
+    oll = probe_ollama()
+    if oll.get("available"):
+        models = ", ".join(oll.get("models") or []) or "none listed"
+        print(f"  Ollama     : online at {oll['url']}")
+        print(f"  Models     : {models}")
+    else:
+        print(f"  Ollama     : offline ({oll.get('url')})")
+        if oll.get("error"):
+            print(f"               {oll['error']}")
+        print("               Fallback extractor will be used. Optional:")
+        print("               ollama pull qwen3:0.6b && ollama pull nomic-embed-text")
 
 
 def start_server(host: str, port: int) -> None:

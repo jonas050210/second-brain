@@ -9,6 +9,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import List, Optional
 
+from urllib.parse import urlparse
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -318,7 +320,10 @@ def conversation_messages(cid: int):
                     "created_at": m["created_at"],
                     "updates": meta.get("updates", []),
                     "remembered": meta.get("remembered", []),
-                    "kind": meta.get("kind", "")})
+                    "kind": meta.get("kind", ""),
+                    "status": meta.get("status", ""),
+                    "sources": meta.get("sources", []),
+                    "superseded": meta.get("superseded", [])})
     return out
 
 
@@ -750,12 +755,15 @@ def export_markdown():
 class ImportIn(BaseModel):
     data: str
     mode: str = "merge"  # 'merge' | 'replace'
+    confirm: bool = False
 
 
 @app.post("/api/import")
 def do_import(body: ImportIn):
     if body.mode not in ("merge", "replace"):
         raise HTTPException(400, "mode must be 'merge' or 'replace'")
+    if body.mode == "replace" and not body.confirm:
+        raise HTTPException(400, "replace requires confirm=true")
     return export.import_from_json(body.data, mode=body.mode)
 
 
@@ -839,7 +847,11 @@ def set_settings(body: SettingsIn):
     if body.embedding_model:
         db.set_setting("embedding_model", body.embedding_model.strip())
     if body.ollama_base_url:
-        db.set_setting("ollama_base_url", body.ollama_base_url.strip().rstrip("/"))
+        url = body.ollama_base_url.strip().rstrip("/")
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise HTTPException(400, "Ollama URL must be http(s)://host[:port]")
+        db.set_setting("ollama_base_url", url)
     if body.confidence_threshold is not None:
         db.set_setting("confidence_threshold", max(0.0, min(1.0, body.confidence_threshold)))
     if body.merge_similarity is not None:
@@ -851,9 +863,16 @@ def set_settings(body: SettingsIn):
     return get_settings()
 
 
+class ResetIn(BaseModel):
+    confirm: bool = False
+
+
 @app.post("/api/reset")
-def reset():
-    """Wipe all data (dangerous, for testing)."""
+def reset(body: Optional[ResetIn] = None):
+    """Wipe all data. Requires explicit confirmation."""
+    payload = body or ResetIn()
+    if not payload.confirm:
+        raise HTTPException(400, "confirmation required")
     for t in ("relationships", "entities", "memories", "messages", "conversations"):
         db.execute(f"DELETE FROM {t}")
     db.set_setting("current_conversation_id", None)

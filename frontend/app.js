@@ -391,9 +391,25 @@ async function loadConversations() {
       <div class="conv-item ${c.id === currentConversationId ? "active" : ""}" data-id="${c.id}">
         <div class="conv-title">${esc(c.title || "(untitled)")}</div>
         <div class="conv-preview">${esc(c.preview || "")}</div>
+        <button class="rel-del conv-del" data-id="${c.id}" title="Delete conversation">✕</button>
       </div>`).join("");
     list.querySelectorAll(".conv-item").forEach((el) =>
-      el.addEventListener("click", () => openConversation(Number(el.dataset.id))));
+      el.addEventListener("click", (ev) => {
+        if (ev.target.closest(".conv-del")) return;
+        openConversation(Number(el.dataset.id));
+      }));
+    list.querySelectorAll(".conv-del").forEach((btn) =>
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        if (!confirm("Delete this conversation? Long-term memories stay.")) return;
+        const r = await api("/conversations/" + btn.dataset.id, { method: "DELETE" });
+        if (currentConversationId === Number(btn.dataset.id)) {
+          currentConversationId = r.conversation_id || null;
+          $("#chat-messages").innerHTML = "";
+          $("#chat-empty").style.display = "";
+        }
+        loadConversations();
+      }));
     const src = $("#sf-source");
     if (src) {
       const cur = src.value;
@@ -1038,7 +1054,7 @@ $("#set-behavior-save").addEventListener("click", async () => {
 
 $("#reset-btn").addEventListener("click", async () => {
   if (!confirm("Wipe ALL entities, relationships, memories and messages?")) return;
-  await api("/reset", { method: "POST" });
+  await api("/reset", { method: "POST", body: JSON.stringify({ confirm: true }) });
   toast("All data cleared");
   location.reload();
 });
@@ -1098,7 +1114,7 @@ $("#import-replace").addEventListener("click", async () => {
   if (!data) return;
   if (!confirm("Replace the ENTIRE database with this import? This wipes all current data.")) return;
   try {
-    const r = await api("/import", { method: "POST", body: JSON.stringify({ data, mode: "replace" }) });
+    const r = await api("/import", { method: "POST", body: JSON.stringify({ data, mode: "replace", confirm: true }) });
     $("#import-status").textContent = r.ok
       ? `Replaced: ${r.entities_created} entities imported.`
       : "Error: " + r.error;

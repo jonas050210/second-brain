@@ -16,8 +16,10 @@ Local-first personal AI memory. Reliability over cleverness.
 - Local backups (SQLite + JSON + Markdown), no secrets
 - Dashboard from live data; demo data is labelled
 - Settings: Ollama URL, models, thresholds, auto-memory, privacy, reset, demo
-- start.py / setup.py / main.py launcher (no repeated reinstall)
+- start.py / setup.py / main.py launcher (no repeated reinstall; Ollama probe)
 - Offline fallback when Ollama is down
+- Conversation switcher, SSE chat, reset/replace confirmation
+- Deterministic Remember / Forget / Pin / Important / Merge / … commands
 
 ## Next
 

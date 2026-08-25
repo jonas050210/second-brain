@@ -70,34 +70,37 @@ ollama pull nomic-embed-text
 (For a more reliable extractor on harder text: `ollama pull qwen3:1.7b` and
 switch to it in Settings.)
 
-### 2. Install Python dependencies
+### 2. Run
 
 ```powershell
 cd second-brain
-python -m pip install -r backend/requirements.txt
-```
-
-### 3. Run
-
-```powershell
 python start.py
 ```
 
-`start.py` is the primary launcher: it detects the environment, installs only
-missing packages, and starts the app. After the first successful setup it will
-**not** reinstall anything. Open **http://localhost:8000**.
+`start.py` is the **primary launcher**. It:
 
-First-time setup only:
+- checks Python 3.11+
+- creates `.venv` only if runtime imports are missing
+- installs **only** missing packages (never reinstalls on later runs)
+- probes Ollama (offline is OK — fallback extractor is used)
+- starts the app at **http://localhost:8000**
+
+First-time setup only (same installer, no server):
 
 ```powershell
 python setup.py
 python start.py
 ```
 
-`main.py` starts the server directly if dependencies are already installed.
-`run.py` remains a thin alias.
+Diagnostics without starting:
 
-### 4. Run the tests
+```powershell
+python start.py --check
+```
+
+`main.py` / `run.py` start the server directly if dependencies are already installed.
+
+### 3. Run the tests
 
 ```powershell
 python -m pip install pytest httpx
@@ -131,8 +134,9 @@ No code changes required to swap models.
 
 ## Features
 
-- **Chat** — ChatGPT-style; messages are analyzed in the background, and you see
-  exactly what was remembered (with confidence) as clickable chips.
+- **Chat** — multiple conversations, switcher, last-N context, SSE endpoint;
+  assistant replies are always stored (they are never blanked by extraction).
+  You see exactly what was remembered (with confidence) as clickable chips.
 - **Memory control** — remember / forget / edit / delete / merge / pin / mark
   important / change confidence, all via natural-language commands or the UI.
 - **Knowledge Graph** — interactive Cytoscape graph: pan, zoom, search, click,
@@ -203,7 +207,7 @@ second-brain/
 ├── frontend/
 │   ├── index.html / style.css / app.js   # no build step
 │   └── vendor/cytoscape.min.js           # bundled graph library
-├── tests/                 # pytest suite (142 tests, incl. Playwright browser tests)
+├── tests/                 # pytest suite (plus Playwright when Chromium is installed)
 └── data/brain.db          # your knowledge (created at first run)
 ```
 

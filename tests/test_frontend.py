@@ -40,7 +40,8 @@ def page(browser):
 
 def _seed_empty(page):
     """Reset the database so tests start from a clean slate."""
-    page.request.post(BASE_URL + "/api/reset")
+    page.request.post(BASE_URL + "/api/reset", data='{"confirm": true}',
+                      headers={"Content-Type": "application/json"})
 
 
 def _wait_boot(page):

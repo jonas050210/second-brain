@@ -244,9 +244,15 @@ def extract_with_rules(text):
         verb, item = m.group(1), clean_phrase(m.group(2))
         key = canonical_name(item).lower()
         if key and key not in ("i", "me"):
-            e = add(item, "technology" if key in TECH else "concept")
-            rel = "learning" if verb == "learn" else "wants"
-            add_rel("User", e, rel)
+            if verb == "learn":
+                e = add(item, "technology" if key in TECH else "topic")
+                add_rel("User", e, "learning")
+            elif verb in ("build", "create", "make", "develop", "start"):
+                e = add(item, "technology" if key in TECH else "project")
+                add_rel("User", e, "wants")
+            else:
+                e = add(item, "technology" if key in TECH else "concept")
+                add_rel("User", e, "wants")
 
     # ---- 4. people ------------------------------------------------------
     last_person = None

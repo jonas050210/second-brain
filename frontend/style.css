@@ -489,8 +489,9 @@ button { font-family: var(--font); }
 .conv-rail-head { font-size: 11px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
 .conv-item {
   padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 4px;
-  border: 1px solid transparent;
+  border: 1px solid transparent; position: relative;
 }
+.conv-item .conv-del { position: absolute; top: 6px; right: 6px; }
 .conv-item:hover { background: var(--surface-2); }
 .conv-item.active { background: rgba(34,211,238,0.1); border-color: rgba(34,211,238,0.3); }
 .conv-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

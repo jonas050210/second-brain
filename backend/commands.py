@@ -24,6 +24,7 @@ COMMAND_LEADS = [
     "pin ", "unpin ", "mark ", "unmark ",
     "merge ", "change ", "update ", "rename ", "set confidence",
     "make this important", "make ", "stop remembering",
+    "important",
 ]
 
 
@@ -33,7 +34,7 @@ def is_command(text):
         t.startswith(("remember ", "forget ", "remove ", "delete ", "pin ",
                       "unpin ", "mark ", "unmark ", "merge ", "change ",
                       "update ", "rename ", "please remember", "please forget",
-                      "stop remembering"))
+                      "stop remembering", "important "))
 
 
 def _find_entity(name):
@@ -121,6 +122,7 @@ def handle_command(text):
         if not e:
             return {"reply": f"I couldn't find an entity matching \"{m.group(1).strip()}\".", "ok": False}
         store.update_entity(e["id"], pinned=1)
+        store.add_memory("command", f'Pinned {e["name"]}', entity_ids=[e["id"]])
         return {"reply": f'Pinned "{e["name"]}".', "ok": True, "entities": [e["id"]]}
 
     m = re.match(r"unpin\s+(.+)$", tl, re.I)
@@ -129,6 +131,7 @@ def handle_command(text):
         if not e:
             return {"reply": f"I couldn't find an entity matching \"{m.group(1).strip()}\".", "ok": False}
         store.update_entity(e["id"], pinned=0)
+        store.add_memory("command", f'Unpinned {e["name"]}', entity_ids=[e["id"]])
         return {"reply": f'Unpinned "{e["name"]}".', "ok": True, "entities": [e["id"]]}
 
     # ---- mark as important / make X important / make this important ------
@@ -144,6 +147,24 @@ def handle_command(text):
 
     m = re.match(r"make this important$", tl, re.I)
     if m:
+        e = _resolve_this("this")
+        if not e:
+            return {"reply": "I don't know which memory to mark as important.", "ok": False}
+        store.update_entity(e["id"], important=1)
+        store.add_memory("command", f'Marked {e["name"]} as important', entity_ids=[e["id"]])
+        return {"reply": f'Marked "{e["name"]}" as important.', "ok": True, "entities": [e["id"]]}
+
+    m = re.match(r"important(?:\s+|:\s*)(.+)$", tl, re.I)
+    if m:
+        name = m.group(1).strip()
+        e = _resolve_this(name) if name.lower() in ("this", "it", "that") else _find_entity(name)
+        if not e:
+            return {"reply": f"I couldn't find an entity matching \"{name}\".", "ok": False}
+        store.update_entity(e["id"], important=1)
+        store.add_memory("command", f'Marked {e["name"]} as important', entity_ids=[e["id"]])
+        return {"reply": f'Marked "{e["name"]}" as important.', "ok": True, "entities": [e["id"]]}
+
+    if tl == "important":
         e = _resolve_this("this")
         if not e:
             return {"reply": "I don't know which memory to mark as important.", "ok": False}
