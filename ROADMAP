@@ -38,11 +38,20 @@ The database is the source of truth.
 - Default graph view is User + 2 hops on large brains
 - Merge-import conflict / skip report
 - Tighter Important / Unimportant command detection
+- EXE icon (ICO) + setup-window icon
+- Optional tray: Open / Remember clipboard / Quit — never activity-watch
+- Entity hash routes, timeline source click, palette conversations
+- Entity sort; backup size; DB integrity in Settings
+- Direct answers for “what did I stop?” and “what changed this week?”
+- Hash routes survive refresh; timeline opens the source message
+- Near-duplicate suggestions on the entity panel
+- “Who uses X?” and “When did I start …?” read stored dates/facts
+- Non-stream RAG also drops ungrounded Ollama replies
 
 ## Next (optional)
 
 - Explicit user-initiated binary file ingest
-- Tray icon / background service for the EXE
+- Code-signed Windows EXE (needs a certificate on a Windows machine)
 
 ## Non-goals
 
@@ -51,3 +60,4 @@ The database is the source of truth.
 - Inventing personal memories
 - A second graph store
 - A second extraction implementation
+- Background activity / screen / window-title surveillance

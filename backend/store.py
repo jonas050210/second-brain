@@ -293,6 +293,36 @@ def all_entities():
     return db.query("SELECT * FROM entities ORDER BY type, name COLLATE NOCASE")
 
 
+def similar_entities(eid, limit=6, min_score=0.78):
+    """Near-duplicates by embedding. Never auto-merges; the UI can suggest Merge."""
+    row = entity_row(eid)
+    if not row:
+        return []
+    vec = vec_from_json(row.get("embedding"))
+    if vec is None:
+        return []
+    try:
+        limit = max(1, min(int(limit or 6), 20))
+    except (TypeError, ValueError):
+        limit = 6
+    scored = []
+    for other in all_entities():
+        if other["id"] == eid:
+            continue
+        ev = vec_from_json(other.get("embedding"))
+        if ev is None:
+            continue
+        score = _cosine(vec, ev)
+        if score >= min_score:
+            scored.append((score, other))
+    scored.sort(key=lambda x: -x[0])
+    return [{
+        "id": other["id"], "name": other["name"], "type": other["type"],
+        "score": round(float(score), 3),
+        "status": other.get("status", "active"),
+    } for score, other in scored[:limit]]
+
+
 # --------------------------------------------------------------------------
 # Relationships (with supersession for stale facts)
 # --------------------------------------------------------------------------

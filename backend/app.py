@@ -528,7 +528,8 @@ def _entity_degree_map():
 
 
 @app.get("/api/entities")
-def entities(q: str = None, type: str = None, pinned: bool = None, important: bool = None):
+def entities(q: str = None, type: str = None, pinned: bool = None, important: bool = None,
+             sort: str = "name"):
     rows = store.all_entities()
     if type:
         rows = [r for r in rows if r["type"] == type]
@@ -540,12 +541,22 @@ def entities(q: str = None, type: str = None, pinned: bool = None, important: bo
     if important is not None:
         rows = [r for r in rows if bool(r.get("important", 0)) == important]
     deg = _entity_degree_map()
-    return [{"id": r["id"], "name": r["name"], "type": r["type"],
-             "description": r["description"], "degree": deg.get(r["id"], 0),
-             "confidence": r["confidence"], "pinned": r.get("pinned", 0),
-             "important": r.get("important", 0), "status": r.get("status", "active"),
-             "created_at": r["created_at"], "updated_at": r["updated_at"],
-             "source_message_id": r.get("source_message_id")} for r in rows]
+    out = [{"id": r["id"], "name": r["name"], "type": r["type"],
+            "description": r["description"], "degree": deg.get(r["id"], 0),
+            "confidence": r["confidence"], "pinned": r.get("pinned", 0),
+            "important": r.get("important", 0), "status": r.get("status", "active"),
+            "created_at": r["created_at"], "updated_at": r["updated_at"],
+            "source_message_id": r.get("source_message_id")} for r in rows]
+    key = (sort or "name").lower()
+    if key == "degree":
+        out.sort(key=lambda e: (-int(e.get("degree") or 0), (e.get("name") or "").lower()))
+    elif key == "recent":
+        out.sort(key=lambda e: e.get("updated_at") or e.get("created_at") or "", reverse=True)
+    elif key == "confidence":
+        out.sort(key=lambda e: (-float(e.get("confidence") or 0), (e.get("name") or "").lower()))
+    else:
+        out.sort(key=lambda e: (e.get("name") or "").lower())
+    return out
 
 
 def _source_for(message_id):
@@ -618,6 +629,7 @@ def entity_detail(eid: int):
         "related": related,
         "memories": mems,
         "history": history,
+        "similar": store.similar_entities(eid),
     }
 
 
@@ -1022,6 +1034,7 @@ def get_settings():
         "ollama_available": ollama.available(),
         "models_installed": ollama.list_models(),
         "db_path": config.DB_PATH,
+        "db_ok": db.integrity_ok(),
         "privacy": {
             "mode": "local-first",
             "local": True,
@@ -1029,6 +1042,7 @@ def get_settings():
             "telemetry": False,
             "cloud": False,
             "data_leaves_machine": False,
+            "activity_watch": False,
         },
     }
 

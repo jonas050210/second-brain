@@ -49,6 +49,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int,
                         default=int(os.environ.get("SECOND_BRAIN_PORT", "8000")))
     parser.add_argument("--check", action="store_true", help="Bootstrap only, do not start")
+    parser.add_argument("--tray", action="store_true",
+                        help="After start, hide the setup window (no activity watching)")
     args = parser.parse_args(argv)
 
     prepare_environment()
@@ -97,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
         url,
         open_browser=not args.no_browser,
         create_server=lambda: create_server(host, port),
+        start_hidden=args.tray,
     )
 
 

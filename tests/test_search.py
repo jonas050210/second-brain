@@ -165,3 +165,50 @@ def test_works_at_intent():
     assert search.detect_intent("Where do I work at?") == "organization"
     facts = search.intent_facts("organization")
     assert any("Acme" in f["text"] for f in facts)
+
+
+def test_what_did_i_stop_reads_superseded():
+    extract.extract("I am learning Rust")
+    extract.extract("I stopped learning Rust")
+    a = search.answer("What did I stop?")
+    assert a["status"] == "known"
+    assert "Rust" in a["text"]
+    assert "no longer active" in a["text"]
+
+
+def test_what_changed_this_week():
+    extract.extract("I prefer Python")
+    extract.extract("I prefer Rust instead of Python")
+    a = search.answer("What changed this week?")
+    assert a["status"] == "known"
+    assert a["text"]
+
+
+def test_who_uses_named_entity():
+    extract.extract("My new project Game Engine uses Bevy")
+    a = search.answer("Who uses Bevy?")
+    assert a["status"] == "known"
+    assert "Game Engine" in a["text"]
+    assert "Bevy" in a["text"]
+
+
+def test_when_did_i_start_learning():
+    extract.extract("I am learning Rust")
+    a = search.answer("When did I start learning Rust?")
+    assert a["status"] == "known"
+    assert "Rust" in a["text"]
+    assert "stored" in a["text"].lower()
+
+
+def test_compose_answer_rejects_ungrounded(monkeypatch):
+    extract.extract("I am learning Python")
+    res = search.search("What am I learning?")
+    monkeypatch.setattr(search.ollama, "available", lambda: True)
+    monkeypatch.setattr(
+        search.ollama, "chat",
+        lambda *a, **k: "You're learning Python and also Java at Google.",
+    )
+    out = search.compose_answer("What am I learning?", res, "qwen3:0.6b")
+    assert "Java" not in out["text"]
+    assert "Google" not in out["text"]
+    assert "Python" in out["text"]

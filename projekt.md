@@ -4,9 +4,9 @@ Every first-party file is inlined below, including tests, launcher,
 and the vendor Cytoscape build. This is documentation, not a second app.
 Live source of truth remains the individual files.
 
-Generated: 2026-08-25 15:03 UTC
-Version: 2.4.0
-Files archived: 55
+Generated: 2026-08-25 15:29 UTC
+Version: 2.5.0
+Files archived: 60
 
 Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
 
@@ -41,11 +41,15 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
 - [`launcher/bootstrap.py`](#launcherbootstrappy)
 - [`launcher/build_exe.py`](#launcherbuildexepy)
 - [`launcher/gui.py`](#launcherguipy)
+- [`launcher/icons.py`](#launchericonspy)
+- [`launcher/secondbrain.ico`](#launchersecondbrainico)
+- [`launcher/secondbrain.png`](#launchersecondbrainpng)
+- [`launcher/tray.py`](#launchertraypy)
 - [`main.py`](#mainpy)
 - [`pytest.ini`](#pytestini)
-- [`README.md`](#READMEmd)
+- [`README.md`](#readmemd)
 - [`requirements.txt`](#requirementstxt)
-- [`ROADMAP`](#ROADMAP)
+- [`ROADMAP`](#roadmap)
 - [`run.py`](#runpy)
 - [`secondbrain.spec`](#secondbrainspec)
 - [`start.py`](#startpy)
@@ -67,6 +71,7 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
 - [`tests/test_search_advanced.py`](#teststestsearchadvancedpy)
 - [`tests/test_store.py`](#teststeststorepy)
 - [`tests/test_summarize.py`](#teststestsummarizepy)
+- [`tests/test_tray.py`](#teststesttraypy)
 
 ## File tree
 
@@ -75,8 +80,8 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
      285  .gitignore
      459  backend/.env.example
        0  backend/__init__.py
-   44380  backend/app.py
-    7455  backend/backup.py
+   45015  backend/app.py
+    7918  backend/backup.py
    15631  backend/commands.py
     8457  backend/config.py
     7595  backend/db.py
@@ -88,54 +93,54 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
     4130  backend/paths.py
      242  backend/requirements-dev.txt
       66  backend/requirements.txt
-   34314  backend/search.py
-   20323  backend/store.py
+   39931  backend/search.py
+   21276  backend/store.py
     5372  backend/summarize.py
-   67164  frontend/app.js
-   18760  frontend/index.html
+   70836  frontend/app.js
+   19189  frontend/index.html
    28208  frontend/style.css
   373304  frontend/vendor/cytoscape.min.js
      222  launcher/__init__.py
-    3376  launcher/__main__.py
+    3553  launcher/__main__.py
    11648  launcher/bootstrap.py
     1617  launcher/build_exe.py
-   12035  launcher/gui.py
+   14580  launcher/gui.py
+     963  launcher/icons.py
+  147587  launcher/secondbrain.ico
+   48109  launcher/secondbrain.png
+    9022  launcher/tray.py
      728  main.py
       91  pytest.ini
-    7582  README.md
+    8248  README.md
      165  requirements.txt
-    2312  ROADMAP
+    2949  ROADMAP
      223  run.py
-    2575  secondbrain.spec
+    2743  secondbrain.spec
     9375  start.py
-   17512  test_overall.py
+   17929  test_overall.py
     2849  tests/conftest.py
-   10176  tests/test_api.py
+   11246  tests/test_api.py
     5976  tests/test_api_phase3.py
-    3220  tests/test_backup.py
+    3318  tests/test_backup.py
     6002  tests/test_commands.py
     5750  tests/test_export.py
    10392  tests/test_extraction.py
-    5376  tests/test_frontend.py
+    5592  tests/test_frontend.py
     4805  tests/test_graph.py
     8594  tests/test_launcher.py
     3365  tests/test_migration.py
     2945  tests/test_ollama.py
     1468  tests/test_reliability.py
-    5454  tests/test_search.py
+    6997  tests/test_search.py
     3065  tests/test_search_advanced.py
-    6284  tests/test_store.py
+    6837  tests/test_store.py
     2508  tests/test_summarize.py
+    1898  tests/test_tray.py
 ```
 
 ## `.env.example`
 
-<a id="envexample"></a>
-
-- size: 634 bytes
-- sha256: `5c007e271562b43cede5dae7b3c34be642462cd580d7bc16786efe8c6c4e3777`
-
-````dotenv
+````
 # Second Brain configuration — copy to .env and edit, or change via Settings UI.
 # The LLM and embedding model are fully swappable without touching code.
 
@@ -159,12 +164,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 
 ## `.gitignore`
 
-<a id="gitignore"></a>
-
-- size: 285 bytes
-- sha256: `05a9e530f8c4bb994c5420fb32ef100e17d33df0ca31f3b001b68dbca1391124`
-
-````gitignore
+````
 # Personal knowledge database (do NOT commit your memory)
 data/
 *.db
@@ -196,12 +196,7 @@ Thumbs.db
 
 ## `backend/.env.example`
 
-<a id="backendenvexample"></a>
-
-- size: 459 bytes
-- sha256: `1435eabbd4e80b18e1cad376c448d72516a0bb89ec240becdc2472e479946fdc`
-
-````dotenv
+````
 # Second Brain configuration — copy to .env and edit, or change via Settings UI.
 # The LLM and embedding model are fully swappable without touching code.
 
@@ -218,23 +213,13 @@ OLLAMA_BASE_URL=http://localhost:11434
 
 ## `backend/__init__.py`
 
-<a id="backendinitpy"></a>
-
-- size: 0 bytes
-- sha256: `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
-
-````python
+````
 
 ````
 
 ## `backend/app.py`
 
-<a id="backendapppy"></a>
-
-- size: 44380 bytes
-- sha256: `66547b4a0d52238773c57f583112cdd063bb73b3c33083f5c65a47361e344262`
-
-````python
+````
 """Second Brain — local AI knowledge graph.
 
 FastAPI backend + static frontend. Everything runs locally; the only external
@@ -765,7 +750,8 @@ def _entity_degree_map():
 
 
 @app.get("/api/entities")
-def entities(q: str = None, type: str = None, pinned: bool = None, important: bool = None):
+def entities(q: str = None, type: str = None, pinned: bool = None, important: bool = None,
+             sort: str = "name"):
     rows = store.all_entities()
     if type:
         rows = [r for r in rows if r["type"] == type]
@@ -777,12 +763,22 @@ def entities(q: str = None, type: str = None, pinned: bool = None, important: bo
     if important is not None:
         rows = [r for r in rows if bool(r.get("important", 0)) == important]
     deg = _entity_degree_map()
-    return [{"id": r["id"], "name": r["name"], "type": r["type"],
-             "description": r["description"], "degree": deg.get(r["id"], 0),
-             "confidence": r["confidence"], "pinned": r.get("pinned", 0),
-             "important": r.get("important", 0), "status": r.get("status", "active"),
-             "created_at": r["created_at"], "updated_at": r["updated_at"],
-             "source_message_id": r.get("source_message_id")} for r in rows]
+    out = [{"id": r["id"], "name": r["name"], "type": r["type"],
+            "description": r["description"], "degree": deg.get(r["id"], 0),
+            "confidence": r["confidence"], "pinned": r.get("pinned", 0),
+            "important": r.get("important", 0), "status": r.get("status", "active"),
+            "created_at": r["created_at"], "updated_at": r["updated_at"],
+            "source_message_id": r.get("source_message_id")} for r in rows]
+    key = (sort or "name").lower()
+    if key == "degree":
+        out.sort(key=lambda e: (-int(e.get("degree") or 0), (e.get("name") or "").lower()))
+    elif key == "recent":
+        out.sort(key=lambda e: e.get("updated_at") or e.get("created_at") or "", reverse=True)
+    elif key == "confidence":
+        out.sort(key=lambda e: (-float(e.get("confidence") or 0), (e.get("name") or "").lower()))
+    else:
+        out.sort(key=lambda e: (e.get("name") or "").lower())
+    return out
 
 
 def _source_for(message_id):
@@ -855,6 +851,7 @@ def entity_detail(eid: int):
         "related": related,
         "memories": mems,
         "history": history,
+        "similar": store.similar_entities(eid),
     }
 
 
@@ -1259,6 +1256,7 @@ def get_settings():
         "ollama_available": ollama.available(),
         "models_installed": ollama.list_models(),
         "db_path": config.DB_PATH,
+        "db_ok": db.integrity_ok(),
         "privacy": {
             "mode": "local-first",
             "local": True,
@@ -1266,6 +1264,7 @@ def get_settings():
             "telemetry": False,
             "cloud": False,
             "data_leaves_machine": False,
+            "activity_watch": False,
         },
     }
 
@@ -1435,12 +1434,7 @@ if os.path.isdir(config.FRONTEND_DIR):
 
 ## `backend/backup.py`
 
-<a id="backendbackuppy"></a>
-
-- size: 7455 bytes
-- sha256: `2fff666f4481d87b2b139a709d65d3b551f74ce4c38efc814dfdcb16e6c3eceb`
-
-````python
+````
 """Local backup mechanism.
 
 Creates timestamped backups under data/backups/ containing:
@@ -1543,6 +1537,21 @@ def create_backup():
     return {"ok": True, "path": target_dir, **meta}
 
 
+def _dir_size(path):
+    total = 0
+    try:
+        for root, _dirs, files in os.walk(path):
+            for name in files:
+                fp = os.path.join(root, name)
+                try:
+                    total += os.path.getsize(fp)
+                except OSError:
+                    continue
+    except OSError:
+        return 0
+    return total
+
+
 def list_backups():
     """List all backups, newest first."""
     out = []
@@ -1561,6 +1570,8 @@ def list_backups():
                     meta = json.load(f)
             except ValueError:
                 meta = {}
+        meta["bytes"] = _dir_size(p)
+        meta["has_db"] = os.path.isfile(os.path.join(p, "brain.db"))
         out.append({"name": name, "path": p, **meta})
     return out
 
@@ -1682,12 +1693,7 @@ def restore_backup(name, confirm=False):
 
 ## `backend/commands.py`
 
-<a id="backendcommandspy"></a>
-
-- size: 15631 bytes
-- sha256: `4feb1ce2a837522bf67f5f01e200c94aac1052ee3467314e09cf03dd2f96e28e`
-
-````python
+````
 """Natural-language memory control.
 
 Lets the user steer memory directly in chat:
@@ -2041,12 +2047,7 @@ def forget_target(target):
 
 ## `backend/config.py`
 
-<a id="backendconfigpy"></a>
-
-- size: 8457 bytes
-- sha256: `a5e3121cc6389558e988817d736e819a243f607b48db9d95dc91fc9816316e20`
-
-````python
+````
 """Configuration for Second Brain.
 
 All runtime options are driven by environment variables (or the Settings UI,
@@ -2219,12 +2220,7 @@ TYPE_COLORS = {
 
 ## `backend/db.py`
 
-<a id="backenddbpy"></a>
-
-- size: 7595 bytes
-- sha256: `f7c3805206e14a80ce86cf3034b49c4fcdf6189cc982dd06bd88fb36dc1dcd0f`
-
-````python
+````
 """SQLite persistence layer for Second Brain.
 
 Everything is stored locally in a single SQLite file: entities, relationships,
@@ -2460,12 +2456,7 @@ def integrity_ok():
 
 ## `backend/export.py`
 
-<a id="backendexportpy"></a>
-
-- size: 16937 bytes
-- sha256: `eb158f41ae2f848d7fe2560dd4969ae58788877e122bca0c710f2ec5da168b4d`
-
-````python
+````
 """Graph export / import (JSON + Markdown).
 
 Export includes entities, relationships, memories, messages, conversations and
@@ -2930,12 +2921,7 @@ def import_notes(text):
 
 ## `backend/extract.py`
 
-<a id="backendextractpy"></a>
-
-- size: 23019 bytes
-- sha256: `840e9902107f6f3604e0b741c7be60ec0212e1e43df55255a0f838779a4fbf8e`
-
-````python
+````
 """Automatic memory extraction pipeline.
 
 user message
@@ -3545,12 +3531,7 @@ def _augment_from_text(text, data):
 
 ## `backend/fallback.py`
 
-<a id="backendfallbackpy"></a>
-
-- size: 22824 bytes
-- sha256: `a26a7f4caf213ab95b1adc1e7530c1e00804d27b3ff09a800d8441e7d99820f8`
-
-````python
+````
 """Local, offline fallbacks.
 
 When Ollama is not available (or not yet installed), Second Brain keeps
@@ -4012,12 +3993,7 @@ def is_trivial(text):
 
 ## `backend/graph.py`
 
-<a id="backendgraphpy"></a>
-
-- size: 15570 bytes
-- sha256: `81f00cce7087ba9175201f0cf5a3e5316bc4ba4695b6048cbd1f87c190798d60`
-
-````python
+````
 """Graph traversal, filtering, neighborhood, path and statistics.
 
 A small, bounded graph engine over the local SQLite graph. All traversals are
@@ -4418,12 +4394,7 @@ def explainable_rank(query_text, max_depth=3):
 
 ## `backend/ollama.py`
 
-<a id="backendollamapy"></a>
-
-- size: 4385 bytes
-- sha256: `8fa91c03fb644a0f86f882a73758cdc339e5752527806737b9f6deac493cc805`
-
-````python
+````
 """Ollama client wrapper.
 
 The LLM and embedding model are both swappable via config (OLLAMA_MODEL /
@@ -4580,12 +4551,7 @@ def embed(model, text):
 
 ## `backend/paths.py`
 
-<a id="backendpathspy"></a>
-
-- size: 4130 bytes
-- sha256: `426c7a1771feab4b0fd80441459749f4c1c0dd0e35a4a45c282bc7d8c0d10f93`
-
-````python
+````
 """Persistent, CWD-independent path resolution.
 
 The database must NEVER live inside a PyInstaller extract directory
@@ -4609,7 +4575,7 @@ import os
 import sys
 from pathlib import Path
 
-APP_VERSION = "2.4.0"
+APP_VERSION = "2.5.0"
 DB_NAME = "brain.db"
 
 
@@ -4721,12 +4687,7 @@ def ensure_data_dirs(db_path: Path | None = None) -> Path:
 
 ## `backend/requirements-dev.txt`
 
-<a id="backendrequirementsdevtxt"></a>
-
-- size: 242 bytes
-- sha256: `cba222612690fe38756a122c48733174a7fef6874fb447957b8b98a355696869`
-
-````text
+````
 # Test / development dependencies (on top of requirements.txt)
 pytest>=8.0
 httpx>=0.27
@@ -4736,12 +4697,7 @@ pyinstaller>=6.0   # optional — build SecondBrain.exe on Windows
 
 ## `backend/requirements.txt`
 
-<a id="backendrequirementstxt"></a>
-
-- size: 66 bytes
-- sha256: `eeb35a2d0e586ada6d7a8809c121a9e78e27b47cd99fb37a9d2c35f8978cb6b6`
-
-````text
+````
 fastapi>=0.110
 uvicorn[standard]>=0.29
 requests>=2.31
@@ -4750,12 +4706,7 @@ numpy>=1.26
 
 ## `backend/search.py`
 
-<a id="backendsearchpy"></a>
-
-- size: 34314 bytes
-- sha256: `bcdf117a0f220c02d4f466e078200b7a2a11cbf01785432332e0342831589404`
-
-````python
+````
 """Unified memory search with multi-hop retrieval and grounded answers.
 
 Combines keyword (exact), vector (semantic) and graph (relational) signals —
@@ -5404,6 +5355,147 @@ def _uses_of_answer(query_text):
     }
 
 
+_STOPPED_Q = re.compile(
+    r"^(?:what did i stop|what have i stopped|what did i quit)(?:\s+\w+)?\??$",
+    re.I,
+)
+_CHANGED_Q = re.compile(
+    r"^(?:what changed(?: this week| recently)?|what did i change(?: this week| recently)?)\??$",
+    re.I,
+)
+_USED_BY = re.compile(
+    r"^(?:who uses|what uses|which (?:projects?|apps?|tools?) (?:use|uses))\s+(.+?)\??$",
+    re.I,
+)
+_WHEN_Q = re.compile(
+    r"^when did i (?:start |begin )?(?:learning |using |working (?:on |at )?"
+    r"|living (?:in )?|meet(?:ing)? )?(.+?)\??$",
+    re.I,
+)
+
+
+def _used_by_answer(query_text):
+    """Inverse of uses-of: which stored things use this entity."""
+    m = _USED_BY.match((query_text or "").strip())
+    if not m:
+        return None
+    ent = _resolve_named_entity(m.group(1))
+    if not ent:
+        return _unknown(query_text)
+    needle = f' uses {ent["name"]}'
+    facts = [f for f in graph_facts_for_entity(ent["id"]) if needle in f.get("text", "")]
+    if not facts:
+        return {
+            "text": f'I don\'t have a stored uses-relationship pointing at {ent["name"]}.',
+            "status": "unknown",
+            "sources": [],
+            "final": True,
+        }
+    return {
+        "text": "; ".join(f["text"] for f in facts[:8]) + ". (from stored memory)",
+        "status": "known",
+        "sources": sources_for_facts(facts),
+        "final": True,
+    }
+
+
+def _when_answer(query_text):
+    """Date of the earliest stored fact about a named entity. Never invents."""
+    m = _WHEN_Q.match((query_text or "").strip())
+    if not m:
+        return None
+    ent = _resolve_named_entity(m.group(1))
+    if not ent:
+        return _unknown(query_text)
+    uid = store.ensure_user_entity()
+    rels = db.query(
+        "SELECT r.*, s.name sname, t.name tname FROM relationships r "
+        "JOIN entities s ON s.id=r.source_id JOIN entities t ON t.id=r.target_id "
+        "WHERE (r.source_id=? AND r.target_id=?) OR (r.source_id=? AND r.target_id=?) "
+        "ORDER BY r.created_at ASC, r.id ASC",
+        (uid, ent["id"], ent["id"], uid),
+    )
+    if rels:
+        first = rels[0]
+        when = (first.get("created_at") or "")[:10] or "an unknown date"
+        extra = " (no longer active)" if first.get("status") != "active" else ""
+        fact = {
+            "text": f'{first["sname"]} {first["relation"]} {first["tname"]}',
+            "entities": [first["source_id"], first["target_id"]],
+            "source_message_id": first.get("source_message_id"),
+            "confidence": first.get("confidence") or 0.8,
+        }
+        return {
+            "text": (
+                f'You first stored “{fact["text"]}” on {when}{extra}. '
+                f"(from stored memory)"
+            ),
+            "status": "known",
+            "sources": sources_for_facts([fact]),
+            "final": True,
+        }
+    when = (ent.get("created_at") or "")[:10]
+    if not when:
+        return _unknown(query_text)
+    return {
+        "text": f'{ent["name"]} was first stored on {when}. (from stored memory)',
+        "status": "known",
+        "sources": sources_for_facts([{
+            "text": ent["name"], "entities": [ent["id"]],
+            "source_message_id": ent.get("source_message_id"),
+        }]),
+        "final": True,
+    }
+
+
+def _stopped_answer(query_text):
+    """Active history: superseded facts. Never invents."""
+    if not _STOPPED_Q.match((query_text or "").strip()):
+        return None
+    rels = db.query(
+        "SELECT r.source_message_id smid, s.name sname, t.name tname, r.relation rel, "
+        "r.confidence c, r.source_id sid, r.target_id tid "
+        "FROM relationships r "
+        "JOIN entities s ON s.id=r.source_id JOIN entities t ON t.id=r.target_id "
+        "WHERE r.status='superseded' ORDER BY r.created_at DESC LIMIT 12"
+    )
+    if not rels:
+        return _unknown(query_text)
+    facts = [{"text": f'{r["sname"]} {r["rel"]} {r["tname"]} (no longer active)',
+              "confidence": r["c"], "entities": [r["sid"], r["tid"]],
+              "source_message_id": r["smid"]} for r in rels]
+    return {
+        "text": "; ".join(f["text"] for f in facts[:8]) + ". (from stored memory)",
+        "status": "known",
+        "sources": sources_for_facts(facts),
+        "final": True,
+    }
+
+
+def _changed_answer(query_text):
+    """Recent superseded / conflict / command memories from the last 7 days."""
+    if not _CHANGED_Q.match((query_text or "").strip()):
+        return None
+    import datetime as _dt
+    cutoff = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=7)).isoformat()
+    mems = db.query(
+        "SELECT * FROM memories WHERE kind IN ('superseded','conflict','command') "
+        "AND created_at >= ? ORDER BY created_at DESC LIMIT 12",
+        (cutoff,),
+    )
+    if not mems:
+        return _unknown(query_text)
+    facts = [{"text": m["text"], "confidence": m.get("confidence") or 0.8,
+              "entities": json_loads(m.get("entity_ids")),
+              "source_message_id": m.get("message_id")} for m in mems]
+    return {
+        "text": "; ".join(f["text"] for f in facts[:8]) + ". (from stored memory)",
+        "status": "known",
+        "sources": sources_for_facts(facts),
+        "final": True,
+    }
+
+
 def retrieve_answer(query_text, filters=None):
     """Deterministic retrieval. `final` answers skip the LLM composer."""
     direct = _direct_fact_answer(query_text)
@@ -5411,12 +5503,24 @@ def retrieve_answer(query_text, filters=None):
         out = dict(direct)
         out["final"] = True
         return out
+    stopped = _stopped_answer(query_text)
+    if stopped is not None:
+        return stopped
+    changed = _changed_answer(query_text)
+    if changed is not None:
+        return changed
     listed = _list_intent_answer(query_text)
     if listed is not None:
         return listed
     uses = _uses_of_answer(query_text)
     if uses is not None:
         return uses
+    used_by = _used_by_answer(query_text)
+    if used_by is not None:
+        return used_by
+    when = _when_answer(query_text)
+    if when is not None:
+        return when
     about = _about_answer(query_text)
     if about is not None:
         out = dict(about)
@@ -5553,7 +5657,7 @@ def compose_answer(query_text, res, model, context=None):
         try:
             text = ollama.chat(model, _composer_messages(query_text, res, context),
                                temperature=0.2).strip()
-            if text:
+            if text and reply_is_grounded(text, res, query_text):
                 return {"text": text, "status": status, "sources": sources}
         except Exception:
             pass
@@ -5642,12 +5746,7 @@ def is_question(text):
 
 ## `backend/store.py`
 
-<a id="backendstorepy"></a>
-
-- size: 20323 bytes
-- sha256: `74ca589deff301e2e947cc99185b5a3ab089d2cff5348a6c31abbe9f599afbe8`
-
-````python
+````
 """Graph store: entities, relationships, conversations, memories, messages.
 
 Implements normalization, duplicate detection, entity merging, memory
@@ -5943,6 +6042,36 @@ def all_entities():
     return db.query("SELECT * FROM entities ORDER BY type, name COLLATE NOCASE")
 
 
+def similar_entities(eid, limit=6, min_score=0.78):
+    """Near-duplicates by embedding. Never auto-merges; the UI can suggest Merge."""
+    row = entity_row(eid)
+    if not row:
+        return []
+    vec = vec_from_json(row.get("embedding"))
+    if vec is None:
+        return []
+    try:
+        limit = max(1, min(int(limit or 6), 20))
+    except (TypeError, ValueError):
+        limit = 6
+    scored = []
+    for other in all_entities():
+        if other["id"] == eid:
+            continue
+        ev = vec_from_json(other.get("embedding"))
+        if ev is None:
+            continue
+        score = _cosine(vec, ev)
+        if score >= min_score:
+            scored.append((score, other))
+    scored.sort(key=lambda x: -x[0])
+    return [{
+        "id": other["id"], "name": other["name"], "type": other["type"],
+        "score": round(float(score), 3),
+        "status": other.get("status", "active"),
+    } for score, other in scored[:limit]]
+
+
 # --------------------------------------------------------------------------
 # Relationships (with supersession for stale facts)
 # --------------------------------------------------------------------------
@@ -6234,12 +6363,7 @@ def message_by_id(mid):
 
 ## `backend/summarize.py`
 
-<a id="backendsummarizepy"></a>
-
-- size: 5372 bytes
-- sha256: `51bda4a03f5216ae384401dfd49a2cc1429691cb4a7c8d6e1853324fb021a016`
-
-````python
+````
 """Memory consolidation / summarization.
 
 Detects clusters of related memories (by shared entities) and produces a
@@ -6389,12 +6513,7 @@ def summarize_all(limit=10):
 
 ## `frontend/app.js`
 
-<a id="frontendappjs"></a>
-
-- size: 67164 bytes
-- sha256: `f9756e2ece7c625df29ed612d9f79c1997e8dbf73fa1c07bc8246afefa2d696e`
-
-````javascript
+````
 /* ==========================================================================
    Second Brain — frontend application (Phase 2)
    ========================================================================== */
@@ -6456,17 +6575,30 @@ let typeColors = TYPE_COLORS;
    Navigation
    ========================================================================== */
 const VIEWS = ["dashboard", "chat", "graph", "browse", "memory", "search", "settings"];
+let currentView = "dashboard";
 
-function showView(name) {
+function parseHash() {
+  const raw = (location.hash || "").replace(/^#/, "");
+  const parts = raw.split("/");
+  return { view: parts[0] || "", extra: parts[1] || "" };
+}
+
+function setHash(view, extra) {
+  const next = extra ? ("#" + view + "/" + extra) : ("#" + view);
+  if (location.hash !== next) {
+    try { history.replaceState(null, "", next); } catch {}
+  }
+}
+
+function showView(name, opts = {}) {
   if (!VIEWS.includes(name)) name = "dashboard";
+  currentView = name;
   VIEWS.forEach((v) => {
     const el = $("#view-" + v);
     if (el) el.classList.toggle("active", v === name);
   });
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
-  if (location.hash !== "#" + name) {
-    try { history.replaceState(null, "", "#" + name); } catch {}
-  }
+  if (!opts.keepHash) setHash(name);
   if (name === "graph") requestAnimationFrame(() => { if (cy) cy.fit(undefined, 30); });
   if (name === "dashboard") loadDashboard();
   if (name === "memory") loadMemory();
@@ -6475,10 +6607,22 @@ function showView(name) {
   if (name === "settings") { loadSettings(); loadBackupStatus(); }
 }
 
-window.addEventListener("hashchange", () => {
-  const v = location.hash.replace(/^#/, "");
-  if (VIEWS.includes(v)) showView(v);
-});
+function applyRoute() {
+  const h = parseHash();
+  if (h.view === "entity" && h.extra) {
+    showView("graph", { keepHash: true });
+    openEntity(h.extra);
+    return;
+  }
+  if (h.view === "chat") {
+    showView("chat", { keepHash: true });
+    if (h.extra) openConversation(Number(h.extra));
+    return;
+  }
+  if (VIEWS.includes(h.view)) showView(h.view, { keepHash: true });
+}
+
+window.addEventListener("hashchange", applyRoute);
 
 $$(".nav-item").forEach((b) =>
   b.addEventListener("click", () => showView(b.dataset.view)));
@@ -6585,6 +6729,18 @@ function rememberChips(remembered) {
   return `<div class="remembered-title">Memory updated</div>${parts}`;
 }
 
+function sourceChips(sources) {
+  if (!sources || !sources.length) return "";
+  return `<div class="remembered-title">Sources</div>` +
+    sources.map((s) => `<span class="remembered-chip" data-id="${s.entity_id}">${esc(s.name)}${s.fact ? ` · <span class="conf">${esc(s.fact)}</span>` : ""}${s.snippet ? ` · <span class="conf">${esc(s.snippet)}</span>` : ""}</span>`).join("");
+}
+
+function attachChips(root) {
+  if (!root) return;
+  root.querySelectorAll(".remembered-chip").forEach((chip) =>
+    chip.addEventListener("click", () => openEntity(chip.dataset.id)));
+}
+
 function appendMessage(role, content, opts = {}) {
   $("#chat-empty").style.display = "none";
   const wrap = document.createElement("div");
@@ -6617,6 +6773,14 @@ function appendMessage(role, content, opts = {}) {
     note.className = "superseded-note";
     note.textContent = "Superseded: " + opts.superseded.join(", ");
     wrap.appendChild(note);
+  }
+
+  if (opts.sources && opts.sources.length) {
+    const src = document.createElement("div");
+    src.className = "remembered-box";
+    src.innerHTML = sourceChips(opts.sources);
+    wrap.appendChild(src);
+    attachChips(src);
   }
 
   const t = document.createElement("div");
@@ -6702,11 +6866,9 @@ async function sendChat() {
     if (sources && sources.length) {
       const src = document.createElement("div");
       src.className = "remembered-box";
-      src.innerHTML = `<div class="remembered-title">Sources</div>` +
-        sources.map((s) => `<span class="remembered-chip" data-id="${s.entity_id}">${esc(s.name)}${s.fact ? ` · <span class="conf">${esc(s.fact)}</span>` : ""}${s.snippet ? ` · <span class="conf">${esc(s.snippet)}</span>` : ""}</span>`).join("");
+      src.innerHTML = sourceChips(sources);
       wrap.appendChild(src);
-      src.querySelectorAll(".remembered-chip").forEach((chip) =>
-        chip.addEventListener("click", () => openEntity(chip.dataset.id)));
+      attachChips(src);
     }
     const t = document.createElement("div");
     t.className = "msg-time";
@@ -6794,6 +6956,7 @@ $("#chat-input").addEventListener("input", (e) => {
 $("#chat-new").addEventListener("click", async () => {
   const r = await api("/conversations/new", { method: "POST" });
   currentConversationId = r.conversation_id;
+  setHash("chat", r.conversation_id);
   $("#chat-messages").innerHTML = "";
   $("#chat-empty").style.display = "";
   toast("Started a new conversation");
@@ -6885,6 +7048,7 @@ async function renameConversation(id, el) {
 
 async function openConversation(id) {
   currentConversationId = id;
+  setHash("chat", id);
   $("#chat-messages").innerHTML = "";
   $("#chat-empty").style.display = "";
   const msgs = await api(`/conversations/${id}/messages`);
@@ -7069,6 +7233,8 @@ async function loadBrowse() {
   if (type) params.set("type", type);
   if ($("#browse-pinned") && $("#browse-pinned").checked) params.set("pinned", "true");
   if ($("#browse-important") && $("#browse-important").checked) params.set("important", "true");
+  const sort = $("#browse-sort") && $("#browse-sort").value;
+  if (sort && sort !== "name") params.set("sort", sort);
   const ents = await api("/entities?" + params.toString());
   list.innerHTML = ents.length ? ents.map((e) => `
     <div class="browse-row" data-id="${e.id}">
@@ -7180,9 +7346,20 @@ if ($("#graph-zoom-out")) $("#graph-zoom-out").addEventListener("click", () => {
 if ($("#graph-fit")) $("#graph-fit").addEventListener("click", () => { if (cy) cy.fit(undefined, 40); });
 if ($("#graph-expand")) $("#graph-expand").addEventListener("click", expandSelectedNeighborhood);
 if ($("#graph-path")) $("#graph-path").addEventListener("click", showGraphPath);
+if ($("#graph-to-me")) $("#graph-to-me").addEventListener("click", pathToUser);
 
 let lastFocusedId = null;
 let pathEnds = [];
+
+async function pathToUser() {
+  if (!cy) return;
+  const id = lastFocusedId || (cy.$("node:selected").length ? cy.$("node:selected")[0].id() : null);
+  if (!id) { toast("Select a node first"); return; }
+  const roots = cy.nodes().filter((n) => String(n.data("label") || "").toLowerCase() === "user");
+  if (!roots.length) { toast("No User node in this view"); return; }
+  pathEnds = [String(roots[0].id()), String(id)];
+  await showGraphPath();
+}
 
 async function showGraphPath() {
   if (pathEnds.length < 2) { toast("Click two nodes, then Path"); return; }
@@ -7270,7 +7447,7 @@ async function loadMemory() {
     <div class="tl-day">
       <div class="tl-day-head">${esc(day)}</div>
       ${items.map((m) => {
-        return `<div class="tl-item">
+        return `<div class="tl-item"${m.message_id ? ` data-mid="${m.message_id}" title="Open source message"` : ""}>
           <div class="tl-time">${fmtTime(m.created_at)}</div>
           <div class="tl-text">${esc(m.text)}<span class="tl-kind">${esc(m.kind)}</span>
           ${m.confidence ? `<span class="conf">${Math.round(m.confidence * 100)}%</span>` : ""}</div>
@@ -7278,6 +7455,16 @@ async function loadMemory() {
       }).join("")}
     </div>`).join("");
   $("#timeline").innerHTML = html || `<p class="muted">No memories recorded yet.</p>`;
+  $$("#timeline .tl-item").forEach((el) => {
+    if (!el.dataset.mid) return;
+    el.style.cursor = "pointer";
+    el.addEventListener("click", async () => {
+      try {
+        const src = await api("/messages/" + el.dataset.mid);
+        openSource(src);
+      } catch (err) { toast(err.message); }
+    });
+  });
 }
 
 $("#mem-kind").addEventListener("change", loadMemory);
@@ -7367,11 +7554,13 @@ function openEntity(id) {
   loadEntity(id);
   $("#entity-panel").classList.add("open");
   $("#entity-overlay").classList.add("show");
+  if (id != null && id !== "") setHash("entity", id);
 }
 function closeEntity() {
   $("#entity-panel").classList.remove("open");
   $("#entity-overlay").classList.remove("show");
   currentEntity = null;
+  if (parseHash().view === "entity") setHash(currentView || "dashboard");
 }
 $("#entity-overlay").addEventListener("click", closeEntity);
 
@@ -7480,6 +7669,19 @@ async function loadEntity(id) {
       <h3>Changes</h3>
       ${d.history.changes.map((c) => `
         <div class="entity-mem">${esc(c.text)} <span class="muted" style="font-size:11px">${fmtTime(c.created_at)} · ${esc(c.kind)}</span></div>`).join("")}
+    </div>` : ""}
+
+    ${(d.similar && d.similar.length) ? `
+    <div class="entity-sec">
+      <h3>Looks similar</h3>
+      ${d.similar.map((s) => `
+        <div class="rel-item" data-id="${s.id}">
+          <span style="color:${typeColors[s.type] || "#fff"}">●</span>
+          <span class="ri-name">${esc(s.name)}</span>
+          ${badge(s.type)}
+          <span class="rel-conf">${Math.round((s.score || 0) * 100)}%</span>
+        </div>`).join("")}
+      <p class="muted">Possible duplicates. Use Merge if they are the same thing.</p>
     </div>` : ""}
 
     <div class="entity-sec">
@@ -7665,7 +7867,8 @@ async function loadSettings() {
       <p class="hint">Architecture: <strong>${esc((priv.mode || "local-first").toUpperCase())}</strong></p>
       <p class="hint">Local: ${priv.local === false ? "no" : "yes"} · Private: ${priv.private === false ? "no" : "yes"} · Telemetry: ${priv.telemetry ? "on" : "off"} · Cloud: ${priv.cloud ? "yes" : "none"}</p>
       <p class="hint">Personal memory stays on this machine unless you export it yourself.</p>
-      <p class="hint">Database: <code>${esc(s.db_path || "")}</code></p>`;
+      <p class="hint">Database: <code>${esc(s.db_path || "")}</code> · Integrity: <strong>${s.db_ok === false ? "not ok" : "ok"}</strong></p>
+      <p class="hint">Activity watch: ${priv.activity_watch ? "on" : "off"} — Second Brain never screenshots or polls what you are doing.</p>`;
   }
   document.body.classList.toggle("theme-light", s.theme === "light");
 }
@@ -7812,7 +8015,7 @@ async function loadBackupStatus() {
     box.innerHTML = items.length ? items.slice(0, 8).map((b) => `
       <div class="browse-row" style="margin-top:8px">
         <span class="browse-name">${esc(b.name)}</span>
-        <span class="browse-meta">${esc((b.created_at || "").slice(0, 19))}</span>
+        <span class="browse-meta">${esc((b.created_at || "").slice(0, 19))}${b.bytes ? " · " + Math.round(b.bytes / 1024) + " KB" : ""}${b.has_db === false ? " · missing db" : ""}</span>
         <button class="btn-ghost backup-restore" data-name="${esc(b.name)}">Restore</button>
       </div>`).join("") : "";
     box.querySelectorAll(".backup-restore").forEach((btn) =>
@@ -7881,10 +8084,13 @@ async function renderPalette(q) {
   const query = (q || "").trim().toLowerCase();
   const views = VIEWS.map((v) => ({ kind: "view", id: v, label: v[0].toUpperCase() + v.slice(1) }));
   let ents = [];
+  let convs = [];
   try { ents = await api("/entities" + (query ? ("?q=" + encodeURIComponent(query)) : "")); } catch {}
+  try { convs = await api("/conversations" + (query ? ("?q=" + encodeURIComponent(query)) : "")); } catch {}
   const viewHits = views.filter((v) => !query || v.label.toLowerCase().includes(query));
-  const entHits = ents.slice(0, 12).map((e) => ({ kind: "entity", id: e.id, label: e.name, type: e.type }));
-  paletteItems = viewHits.concat(entHits);
+  const entHits = ents.slice(0, 10).map((e) => ({ kind: "entity", id: e.id, label: e.name, type: e.type }));
+  const convHits = (convs || []).slice(0, 6).map((c) => ({ kind: "conversation", id: c.id, label: c.title || ("Chat " + c.id) }));
+  paletteItems = viewHits.concat(convHits, entHits);
   paletteIndex = 0;
   box.innerHTML = paletteItems.map((it, i) => `
     <div class="palette-item ${i === 0 ? "active" : ""}" data-i="${i}">
@@ -7901,6 +8107,7 @@ function choosePalette(i) {
   closePalette();
   if (!it) return;
   if (it.kind === "view") showView(it.id);
+  else if (it.kind === "conversation") { showView("chat"); openConversation(it.id); }
   else openEntity(it.id);
 }
 
@@ -7919,6 +8126,7 @@ if ($("#browse-q")) $("#browse-q").addEventListener("input", loadBrowse);
 if ($("#browse-type")) $("#browse-type").addEventListener("change", loadBrowse);
 if ($("#browse-pinned")) $("#browse-pinned").addEventListener("change", loadBrowse);
 if ($("#browse-important")) $("#browse-important").addEventListener("change", loadBrowse);
+if ($("#browse-sort")) $("#browse-sort").addEventListener("change", loadBrowse);
 
 document.addEventListener("keydown", (e) => {
   const tag = (e.target && e.target.tagName) || "";
@@ -7945,6 +8153,7 @@ document.addEventListener("keydown", (e) => {
    Boot
    ========================================================================== */
 async function boot() {
+  const wanted = location.hash;
   refreshStatus();
   await loadChatHistory();
   await buildGraph();
@@ -7953,8 +8162,12 @@ async function boot() {
   loadBackupStatus();
   loadSummarizeCandidates();
   loadConversations();
-  const initial = location.hash.replace(/^#/, "");
-  showView(VIEWS.includes(initial) ? initial : "dashboard");
+  if (wanted && wanted !== "#") {
+    try { history.replaceState(null, "", wanted); } catch {}
+    applyRoute();
+  } else {
+    showView("dashboard");
+  }
   setInterval(refreshStatus, 15000);
 }
 boot();
@@ -7962,12 +8175,7 @@ boot();
 
 ## `frontend/index.html`
 
-<a id="frontendindexhtml"></a>
-
-- size: 18760 bytes
-- sha256: `8c14c50f54b4ea533523e9141eba543b46c7cea29277dea480433155a3b6f214`
-
-````html
+````
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8160,6 +8368,7 @@ boot();
             <button class="btn-ghost" id="graph-fit" title="Fit">Fit</button>
             <button class="btn-ghost" id="graph-expand" title="Expand neighborhood">Expand</button>
             <button class="btn-ghost" id="graph-path" title="Path between last two nodes">Path</button>
+            <button class="btn-ghost" id="graph-to-me" title="Path from User to the selected node">To me</button>
           </div>
           <div id="cy"></div>
         </div>
@@ -8186,6 +8395,12 @@ boot();
             <input type="checkbox" id="browse-important" />
             <span>Important</span>
           </label>
+          <select id="browse-sort" class="input" title="Sort entities">
+            <option value="name">Name</option>
+            <option value="degree">Most linked</option>
+            <option value="recent">Recently updated</option>
+            <option value="confidence">Confidence</option>
+          </select>
         </div>
         <div id="browse-list" class="browse-list"></div>
       </section>
@@ -8420,12 +8635,7 @@ boot();
 
 ## `frontend/style.css`
 
-<a id="frontendstylecss"></a>
-
-- size: 28208 bytes
-- sha256: `995b4c5143e76a1b2ab5657f35c9f5112bf434378cdf222d65d345f17fd3f348`
-
-````css
+````
 /* ==========================================================================
    Second Brain — dark, glassmorphism, futuristic personal AI OS
    ========================================================================== */
@@ -9019,12 +9229,7 @@ body.theme-light .sidebar { background: rgba(255,255,255,0.7); }
 
 ## `frontend/vendor/cytoscape.min.js`
 
-<a id="frontendvendorcytoscapeminjs"></a>
-
-- size: 373304 bytes
-- sha256: `83e8c54a6bec655bfd81df07df605649c268af69aeca67a5ea2da54ea42dac81`
-
-````javascript
+````
 /**
  * Copyright (c) 2016-2024, The Cytoscape Consortium.
  *
@@ -9061,29 +9266,19 @@ var is=function(){function e(e){return-e.tension*e.x-e.friction*e.v}function t(t
 
 ## `launcher/__init__.py`
 
-<a id="launcherinitpy"></a>
-
-- size: 222 bytes
-- sha256: `b8e7b92eb4c8b1d6a01fc66d7017ff2c1396ab28a4afd6fc71c288b5b1c470ba`
-
-````python
+````
 """Windows EXE / desktop bootstrapper for the existing Second Brain app.
 
 This package does not reimplement memory, search, or the API. It only
 checks the environment and starts ``backend.app``.
 """
 
-__version__ = "2.4.0"
+__version__ = "2.5.0"
 ````
 
 ## `launcher/__main__.py`
 
-<a id="launchermainpy"></a>
-
-- size: 3376 bytes
-- sha256: `c44ad0ff032d31583a8569e21c94799c859d3178da9a934feec6317842b992a5`
-
-````python
+````
 """Entry point for SecondBrain.exe and ``python -m launcher``."""
 from __future__ import annotations
 
@@ -9135,6 +9330,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int,
                         default=int(os.environ.get("SECOND_BRAIN_PORT", "8000")))
     parser.add_argument("--check", action="store_true", help="Bootstrap only, do not start")
+    parser.add_argument("--tray", action="store_true",
+                        help="After start, hide the setup window (no activity watching)")
     args = parser.parse_args(argv)
 
     prepare_environment()
@@ -9183,6 +9380,7 @@ def main(argv: list[str] | None = None) -> int:
         url,
         open_browser=not args.no_browser,
         create_server=lambda: create_server(host, port),
+        start_hidden=args.tray,
     )
 
 
@@ -9192,12 +9390,7 @@ if __name__ == "__main__":
 
 ## `launcher/bootstrap.py`
 
-<a id="launcherbootstrappy"></a>
-
-- size: 11648 bytes
-- sha256: `d0e28097e374b22ab239ee67845e60727afafd5f1cf9177b15aa56f33871c77a`
-
-````python
+````
 """Idempotent bootstrap steps for the existing Second Brain application.
 
 Never deletes ``brain.db``. Never resets memories. Installs a package only
@@ -9512,12 +9705,7 @@ def wait_for_http(url: str, timeout: float = 30.0) -> bool:
 
 ## `launcher/build_exe.py`
 
-<a id="launcherbuildexepy"></a>
-
-- size: 1617 bytes
-- sha256: `e1b3b0110efceb3561847e4c9b207eb22e34ab885e986797b5052b475dd42e32`
-
-````python
+````
 #!/usr/bin/env python3
 """Build SecondBrain.exe with PyInstaller.
 
@@ -9576,12 +9764,7 @@ if __name__ == "__main__":
 
 ## `launcher/gui.py`
 
-<a id="launcherguipy"></a>
-
-- size: 12035 bytes
-- sha256: `1d3a61a0ab941d20042fb1aec0ef995d2266e9c7cbae00fe0ccaa4e34906a236`
-
-````python
+````
 """Dark setup window for SecondBrain.exe.
 
 Uses tkinter when available (bundled on Windows). Falls back to stdout so
@@ -9601,6 +9784,7 @@ import webbrowser
 from typing import Callable
 
 from launcher.bootstrap import APP_VERSION, StepResult, bootstrap_ok, wait_for_http
+from launcher.icons import icon_ico, icon_png
 
 BG = "#070a13"
 PANEL = "#0f1628"
@@ -9620,6 +9804,30 @@ def tk_available() -> bool:
         return True
     except Exception:
         return False
+
+
+def apply_window_icon(root) -> None:
+    """Set the setup-window icon when the PNG/ICO shipped with the EXE exists."""
+    png = icon_png()
+    if png is not None:
+        try:
+            img = root.tk.call("image", "create", "photo", "-file", str(png))
+            root.tk.call("wm", "iconphoto", root._w, img)
+            root._sb_icon = img
+        except Exception:
+            try:
+                import tkinter as tk
+                photo = tk.PhotoImage(file=str(png))
+                root.iconphoto(True, photo)
+                root._sb_icon = photo
+            except Exception:
+                pass
+    ico = icon_ico()
+    if ico is not None and os.name == "nt":
+        try:
+            root.iconbitmap(str(ico))
+        except Exception:
+            pass
 
 
 def native_alert(title: str, message: str) -> None:
@@ -9658,6 +9866,7 @@ class SetupWindow:
         self.root.geometry("620x580")
         self.root.minsize(520, 460)
         self.root.resizable(True, True)
+        apply_window_icon(self.root)
 
         self._status = tk.StringVar(value="Initializing Second Brain")
         self._ollama = tk.StringVar(value="Ollama: checking…")
@@ -9744,7 +9953,14 @@ class SetupWindow:
             activeforeground=TEXT, relief="flat", padx=12, pady=5,
             font=("Segoe UI", 9), cursor="hand2",
         )
+        self.btn_tray = tk.Button(
+            self.btn_row, text="Hide to tray", command=self._hide_to_tray,
+            bg="#132337", fg=MUTED, activebackground="#1e3a4c",
+            activeforeground=TEXT, relief="flat", padx=12, pady=5,
+            font=("Segoe UI", 9), cursor="hand2",
+        )
         self._url = "http://127.0.0.1:8000"
+        self._tray = None
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -9754,10 +9970,30 @@ class SetupWindow:
         except Exception:
             self.append_log("Could not open the browser. Visit " + self._url)
 
+    def _hide_to_tray(self) -> None:
+        """Hide the setup window. Tray does not watch the desktop."""
+        try:
+            self.root.withdraw()
+        except Exception:
+            pass
+        self.append_log("Hidden. Tray / taskbar keeps Second Brain running. It does not watch what you do.")
+
+    def _show_window(self) -> None:
+        try:
+            self.root.deiconify()
+            self.root.lift()
+        except Exception:
+            pass
+
     def _on_close(self) -> None:
         if self._closed:
             return
         self._closed = True
+        if self._tray is not None:
+            try:
+                self._tray.stop()
+            except Exception:
+                pass
         server = self._server
         if server is not None:
             try:
@@ -9825,8 +10061,21 @@ class SetupWindow:
         self._status.set("Second Brain is running")
         self.bar["value"] = 100
         self.append_log(f"Started existing FastAPI app at {url}")
+        self.append_log("Tray will not watch your screen or apps. Remember clipboard is click-only.")
         self.btn_open.pack(side="left", padx=(0, 8))
+        self.btn_tray.pack(side="left", padx=(0, 8))
         self.btn_quit.pack(side="left")
+        try:
+            from launcher.tray import TrayController
+            tray = TrayController(
+                url, on_open=self._open_browser,
+                on_show=self._show_window, on_quit=self._on_close,
+            )
+            if tray.start():
+                self._tray = tray
+                self.append_log("System tray icon ready (Open / Remember clipboard / Quit).")
+        except Exception as exc:
+            self.append_log(f"Tray unavailable ({exc}). Use Hide to tray / Quit.")
         try:
             self.root.update_idletasks()
         except Exception:
@@ -9881,6 +10130,7 @@ def run_gui_bootstrap(
     url: str,
     open_browser: bool = True,
     create_server: Callable | None = None,
+    start_hidden: bool = False,
 ) -> int:
     """Show the window, run checks, then keep the existing app alive."""
     if not tk_available():
@@ -9925,6 +10175,8 @@ def run_gui_bootstrap(
                         target=start_server, name="second-brain-server", daemon=True,
                     ).start()
                 win.succeed(url, server=server)
+                if start_hidden:
+                    win._hide_to_tray()
                 if open_browser:
                     threading.Thread(
                         target=lambda: wait_for_http(url) and webbrowser.open(url),
@@ -9947,14 +10199,332 @@ def run_gui_bootstrap(
     return 0 if outcome["ok"] else 1
 ````
 
+## `launcher/icons.py`
+
+````
+"""Resolve the Second Brain icon for the EXE, setup window, and tray.
+
+Never required for the memory app to run. Missing files degrade to the
+default window icon.
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+
+def _candidates(name: str) -> list[Path]:
+    here = Path(__file__).resolve().parent
+    root = here.parent
+    out = [here / name, root / "launcher" / name]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        base = Path(meipass)
+        out.extend([base / "launcher" / name, base / name])
+    if getattr(sys, "frozen", False):
+        out.append(Path(sys.executable).resolve().parent / name)
+    return out
+
+
+def icon_ico() -> Path | None:
+    for path in _candidates("secondbrain.ico"):
+        if path.is_file():
+            return path
+    return None
+
+
+def icon_png() -> Path | None:
+    for path in _candidates("secondbrain.png"):
+        if path.is_file():
+            return path
+    return None
+````
+
+## `launcher/secondbrain.ico`
+
+Binary file, 147587 bytes, SHA256 `6399bb5dd9171bb25e91b540181dcfad08886d1942943967773861ad6708f19d`. ICO type=1 sizes=[256, 128, 64, 48, 32, 16].
+Not inlined as text. The live file in the repository is the source.
+
+## `launcher/secondbrain.png`
+
+Binary file, 48109 bytes, SHA256 `bca342072df70b8b3f80bd537dd1857487e4b2859351f9d57e34dfe4f4b134f6`.
+Not inlined as text. The live file in the repository is the source.
+
+## `launcher/tray.py`
+
+````
+"""Optional system tray for SecondBrain.exe.
+
+The tray NEVER watches the user. It does not screenshot, read window titles,
+keylog, or poll “what you are doing.” Those would fill the brain with junk
+and secrets.
+
+Menu actions are explicit clicks only:
+
+- Open browser
+- Remember clipboard  (user-initiated; same /api/chat path)
+- Show window
+- Quit
+
+Activity auto-capture is a non-goal.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+import threading
+import urllib.error
+import urllib.request
+from typing import Callable
+
+# Hard rule: this module must not grow an activity watcher.
+ACTIVITY_WATCH_ENABLED = False
+ACTIVITY_POLL_SECONDS = None
+
+
+def should_watch_activity() -> bool:
+    """Always False. Auto-capture of the desktop is not a feature."""
+    return False
+
+
+def clip_remember_text(text: str, limit: int = 8000) -> str | None:
+    """Return clipboard text worth sending, or None if empty."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if len(raw) > limit:
+        raw = raw[:limit]
+    return raw
+
+
+def post_remember(url: str, text: str, timeout: float = 8.0) -> dict:
+    """POST clipboard text into the existing chat/extract pipeline."""
+    payload = json.dumps({"content": text}).encode("utf-8")
+    req = urllib.request.Request(
+        url.rstrip("/") + "/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        body = resp.read().decode("utf-8", errors="replace")
+    try:
+        return json.loads(body)
+    except ValueError:
+        return {"ok": False, "error": "invalid response"}
+
+
+def read_clipboard() -> str:
+    """Best-effort clipboard read. Empty string if unavailable."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+            CF_UNICODETEXT = 13
+            if not user32.OpenClipboard(None):
+                return ""
+            try:
+                handle = user32.GetClipboardData(CF_UNICODETEXT)
+                if not handle:
+                    return ""
+                ptr = kernel32.GlobalLock(handle)
+                if not ptr:
+                    return ""
+                try:
+                    return ctypes.wstring_at(ptr)
+                finally:
+                    kernel32.GlobalUnlock(handle)
+            finally:
+                user32.CloseClipboard()
+        except Exception:
+            return ""
+    try:
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            return root.clipboard_get()
+        finally:
+            root.destroy()
+    except Exception:
+        return ""
+
+
+class TrayController:
+    """Holds callbacks the GUI wires up. No background activity sampling."""
+
+    def __init__(self, url: str, on_open: Callable[[], None] | None = None,
+                 on_show: Callable[[], None] | None = None,
+                 on_quit: Callable[[], None] | None = None):
+        self.url = url
+        self.on_open = on_open
+        self.on_show = on_show
+        self.on_quit = on_quit
+        self._alive = False
+
+    def remember_clipboard(self) -> dict:
+        text = clip_remember_text(read_clipboard())
+        if not text:
+            return {"ok": False, "error": "clipboard empty"}
+        try:
+            return post_remember(self.url, text)
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def start(self) -> bool:
+        """Start a Windows tray icon if possible. Never starts an activity poll."""
+        if should_watch_activity():
+            raise RuntimeError("activity watch must stay disabled")
+        if os.name != "nt":
+            return False
+        self._alive = True
+        thread = threading.Thread(target=self._win_loop, name="second-brain-tray",
+                                  daemon=True)
+        thread.start()
+        return True
+
+    def stop(self) -> None:
+        self._alive = False
+
+    def _win_loop(self) -> None:
+        """Best-effort NotifyIcon. Failures are silent; the setup window remains."""
+        try:
+            self._win_notify()
+        except Exception:
+            self._alive = False
+
+    def _win_notify(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        from launcher.icons import icon_ico
+
+        user32 = ctypes.windll.user32
+        shell32 = ctypes.windll.shell32
+
+        WM_USER = 0x0400
+        WM_TRAY = WM_USER + 42
+        WM_LBUTTONUP = 0x0202
+        WM_RBUTTONUP = 0x0205
+        NIM_ADD, NIM_DELETE = 0x00000000, 0x00000002
+        NIF_MESSAGE, NIF_ICON, NIF_TIP = 0x00000001, 0x00000002, 0x00000004
+        ID_OPEN, ID_CLIP, ID_SHOW, ID_QUIT = 1001, 1002, 1003, 1004
+
+        class NOTIFYICONDATA(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", wintypes.DWORD),
+                ("hWnd", wintypes.HWND),
+                ("uID", wintypes.UINT),
+                ("uFlags", wintypes.UINT),
+                ("uCallbackMessage", wintypes.UINT),
+                ("hIcon", wintypes.HICON),
+                ("szTip", ctypes.c_wchar * 128),
+            ]
+
+        WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_long, wintypes.HWND, wintypes.UINT,
+                                     wintypes.WPARAM, wintypes.LPARAM)
+
+        def wndproc(hwnd, msg, wparam, lparam):
+            if msg == WM_TRAY and lparam in (WM_LBUTTONUP, WM_RBUTTONUP):
+                if lparam == WM_LBUTTONUP and self.on_open:
+                    self.on_open()
+                elif lparam == WM_RBUTTONUP:
+                    self._popup(hwnd, user32, ID_OPEN, ID_CLIP, ID_SHOW, ID_QUIT)
+            elif msg == 0x0111:  # WM_COMMAND
+                cmd = wparam & 0xFFFF
+                if cmd == ID_OPEN and self.on_open:
+                    self.on_open()
+                elif cmd == ID_CLIP:
+                    self.remember_clipboard()
+                elif cmd == ID_SHOW and self.on_show:
+                    self.on_show()
+                elif cmd == ID_QUIT and self.on_quit:
+                    self.on_quit()
+            return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
+
+        self._wndproc = WNDPROC(wndproc)
+
+        class WNDCLASS(ctypes.Structure):
+            _fields_ = [
+                ("style", wintypes.UINT),
+                ("lpfnWndProc", WNDPROC),
+                ("cbClsExtra", ctypes.c_int),
+                ("cbWndExtra", ctypes.c_int),
+                ("hInstance", wintypes.HINSTANCE),
+                ("hIcon", wintypes.HICON),
+                ("hCursor", wintypes.HCURSOR),
+                ("hbrBackground", wintypes.HBRUSH),
+                ("lpszMenuName", wintypes.LPCWSTR),
+                ("lpszClassName", wintypes.LPCWSTR),
+            ]
+
+        wc = WNDCLASS()
+        wc.lpfnWndProc = self._wndproc
+        wc.hInstance = kernel32_instance()
+        wc.lpszClassName = "SecondBrainTray"
+        if not user32.RegisterClassW(ctypes.byref(wc)):
+            return
+        hwnd = user32.CreateWindowExW(0, wc.lpszClassName, "Second Brain",
+                                      0, 0, 0, 0, 0, None, None, wc.hInstance, None)
+        if not hwnd:
+            return
+
+        ico_path = icon_ico()
+        hicon = None
+        if ico_path:
+            hicon = user32.LoadImageW(None, str(ico_path), 1, 16, 16, 0x00000010)
+        if not hicon:
+            hicon = user32.LoadIconW(None, 32512)
+
+        nid = NOTIFYICONDATA()
+        nid.cbSize = ctypes.sizeof(NOTIFYICONDATA)
+        nid.hWnd = hwnd
+        nid.uID = 1
+        nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
+        nid.uCallbackMessage = WM_TRAY
+        nid.hIcon = hicon
+        nid.szTip = "Second Brain"
+        shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid))
+
+        msg = wintypes.MSG()
+        while self._alive and user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            user32.TranslateMessage(ctypes.byref(msg))
+            user32.DispatchMessageW(ctypes.byref(msg))
+
+        shell32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(nid))
+
+    def _popup(self, hwnd, user32, id_open, id_clip, id_show, id_quit) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        try:
+            menu = user32.CreatePopupMenu()
+            user32.AppendMenuW(menu, 0, id_open, "Open browser")
+            user32.AppendMenuW(menu, 0, id_clip, "Remember clipboard")
+            user32.AppendMenuW(menu, 0, id_show, "Show window")
+            user32.AppendMenuW(menu, 0, id_quit, "Quit")
+            pt = wintypes.POINT()
+            user32.GetCursorPos(ctypes.byref(pt))
+            user32.SetForegroundWindow(hwnd)
+            user32.TrackPopupMenu(menu, 0, pt.x, pt.y, 0, hwnd, None)
+            user32.DestroyMenu(menu)
+        except Exception:
+            pass
+
+
+def kernel32_instance():
+    import ctypes
+    return ctypes.windll.kernel32.GetModuleHandleW(None)
+````
+
 ## `main.py`
 
-<a id="mainpy"></a>
-
-- size: 728 bytes
-- sha256: `7832ff9b9a51171c6c8d9368420785947d0be409ce8c21fb6a4040a5541c906c`
-
-````python
+````
 #!/usr/bin/env python3
 """Second Brain — application entry point.
 
@@ -9988,12 +10558,7 @@ if __name__ == "__main__":
 
 ## `pytest.ini`
 
-<a id="pytestini"></a>
-
-- size: 91 bytes
-- sha256: `87b28ec8b3ebfe5632bb76fbcfd2a2767cc13d7f561bdaa61d2a40e98fc339cf`
-
-````ini
+````
 [pytest]
 testpaths = tests test_overall.py
 filterwarnings =
@@ -10002,12 +10567,7 @@ filterwarnings =
 
 ## `README.md`
 
-<a id="READMEmd"></a>
-
-- size: 7582 bytes
-- sha256: `7fdcf7a724bb351d59ec035ec871844b85bd9bbb5e6fd03a76f5f5966e19692d`
-
-````markdown
+````
 # Second Brain — Local AI Knowledge Graph
 
 A **local, private Second Brain**. You talk to it. It extracts durable facts
@@ -10068,7 +10628,8 @@ python -m pip install pyinstaller
 python -m launcher.build_exe
 ```
 
-That produces **`dist/SecondBrain.exe`**. Double-click it.
+That produces **`dist/SecondBrain.exe`** with the Second Brain icon
+(`launcher/secondbrain.ico`). Double-click it.
 
 First launch shows a dark setup window (version, current step, progress, log, Ollama status). It:
 
@@ -10081,7 +10642,12 @@ First launch shows a dark setup window (version, current step, progress, log, Ol
 
 If Ollama is down, the window says offline and the app uses the rule-based fallback. It does not crash.
 
-Later launches skip installs, skip model downloads, and reopen the same database. The setup window stays open with **Open browser** / **Quit** so the server is not killed when the first-run checks finish.
+Later launches skip installs, skip model downloads, and reopen the same database. The setup window stays open with **Open browser** / **Hide to tray** / **Quit** so the server is not killed when the first-run checks finish.
+
+The optional tray does **not** watch your screen, windows, or typing. It only
+opens the app, quits, or (if you click it) remembers the current clipboard
+through the same chat extractor. Auto-capturing “what you are doing” every
+few minutes would store junk and secrets. That is intentionally not a feature.
 
 `start.py` remains the normal Python launcher. The EXE is an additional bootstrapper, not a second application.
 
@@ -10186,8 +10752,10 @@ silently delete history.
 
 Keyword + semantic + graph + recency + confidence + active/superseded + bounded
 multi-hop. Short names (`Go`, `C#`, `AI`) are searchable. Direct questions
-such as “Where do I live?” or “What technology does the game engine use?”
-read the graph first. If there is no evidence, the answer is UNKNOWN.
+such as “Where do I live?”, “What technology does the game engine use?”,
+“Who uses Bevy?”, “When did I start learning Rust?”, “What did I stop?”,
+and “What changed this week?” read the graph first. If there is no evidence,
+the answer is UNKNOWN. Ollama replies that invent names are dropped.
 
 ---
 
@@ -10198,7 +10766,8 @@ relation / confidence / status / pinned / important filters, expand, focus,
 edit, delete, merge. Layouts: force, group-by-type, from-User. Relationship
 types can be edited on an entity. Isolated nodes can be hidden. No fabricated
 nodes. Brains larger than 40 entities default to **Around me** (User + 2 hops);
-Reset view loads the full graph.
+Reset view loads the full graph. `#entity/12` and `#chat/3` survive refresh.
+The entity panel lists near-duplicates so you can merge them yourself.
 
 ---
 
@@ -10258,12 +10827,7 @@ second-brain/
 
 ## `requirements.txt`
 
-<a id="requirementstxt"></a>
-
-- size: 165 bytes
-- sha256: `3e71e7fb36655d9ec5b1d3bd6c701312fc94de522c2fca1673cd22ab4776f6b3`
-
-````text
+````
 # Second Brain — runtime dependencies
 # Install with:  python -m pip install -r requirements.txt
 fastapi>=0.110
@@ -10273,11 +10837,6 @@ numpy>=1.26
 ````
 
 ## `ROADMAP`
-
-<a id="ROADMAP"></a>
-
-- size: 2312 bytes
-- sha256: `8c5dc71b1654f1688f3ca968b5020cc44baed2c83935414e2767126baae45d17`
 
 ````
 # Second Brain — Roadmap
@@ -10320,11 +10879,20 @@ The database is the source of truth.
 - Default graph view is User + 2 hops on large brains
 - Merge-import conflict / skip report
 - Tighter Important / Unimportant command detection
+- EXE icon (ICO) + setup-window icon
+- Optional tray: Open / Remember clipboard / Quit — never activity-watch
+- Entity hash routes, timeline source click, palette conversations
+- Entity sort; backup size; DB integrity in Settings
+- Direct answers for “what did I stop?” and “what changed this week?”
+- Hash routes survive refresh; timeline opens the source message
+- Near-duplicate suggestions on the entity panel
+- “Who uses X?” and “When did I start …?” read stored dates/facts
+- Non-stream RAG also drops ungrounded Ollama replies
 
 ## Next (optional)
 
 - Explicit user-initiated binary file ingest
-- Tray icon / background service for the EXE
+- Code-signed Windows EXE (needs a certificate on a Windows machine)
 
 ## Non-goals
 
@@ -10333,16 +10901,12 @@ The database is the source of truth.
 - Inventing personal memories
 - A second graph store
 - A second extraction implementation
+- Background activity / screen / window-title surveillance
 ````
 
 ## `run.py`
 
-<a id="runpy"></a>
-
-- size: 223 bytes
-- sha256: `3e7206e28b425b49ebfbbcb1a5ec70beb1549f5b7c0a0eb06a0a767b224056c3`
-
-````python
+````
 """Launch the Second Brain backend + UI.
 
 Usage:  python run.py   (then open http://localhost:8000)
@@ -10355,12 +10919,7 @@ if __name__ == "__main__":
 
 ## `secondbrain.spec`
 
-<a id="secondbrainspec"></a>
-
-- size: 2575 bytes
-- sha256: `3ae1562bf0cfa5c17188e1ed90c31539501c5702bbfa995bfac71a776ce01fdc`
-
-````python
+````
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec for SecondBrain.exe
 # Run on Windows 11:  python -m launcher.build_exe
@@ -10375,6 +10934,8 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 datas = [
     ("frontend", "frontend"),
     (".env.example", "."),
+    ("launcher/secondbrain.ico", "launcher"),
+    ("launcher/secondbrain.png", "launcher"),
 ]
 binaries = []
 hidden = []
@@ -10405,6 +10966,7 @@ hidden += [
     "backend.graph", "backend.commands", "backend.export", "backend.backup",
     "backend.summarize", "backend.ollama",
     "launcher", "launcher.bootstrap", "launcher.gui",
+    "launcher.icons", "launcher.tray",
     "multipart", "python_multipart",
 ]
 
@@ -10444,6 +11006,7 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
+    icon="launcher/secondbrain.ico",
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -10455,12 +11018,7 @@ exe = EXE(
 
 ## `start.py`
 
-<a id="startpy"></a>
-
-- size: 9375 bytes
-- sha256: `d68f92a4419136a85f60fbc82b5d82df79c7cd09cf802c797b0b7d371c51d7b2`
-
-````python
+````
 #!/usr/bin/env python3
 """Primary launcher for Second Brain.
 
@@ -10746,12 +11304,7 @@ if __name__ == "__main__":
 
 ## `test_overall.py`
 
-<a id="testoverallpy"></a>
-
-- size: 17512 bytes
-- sha256: `b1b90d7ccdcc95bd7448333445de91bfa4fd6583fbfc51164b9292aacdef1a6c`
-
-````python
+````
 #!/usr/bin/env python3
 """Overall production test suite for Second Brain.
 
@@ -10845,6 +11398,8 @@ def test_frontend_assets_present():
     assert (Path(config.FRONTEND_DIR) / "app.js").is_file()
     assert (Path(config.FRONTEND_DIR) / "style.css").is_file()
     assert (Path(config.FRONTEND_DIR) / "vendor" / "cytoscape.min.js").is_file()
+    assert (_ROOT / "launcher" / "secondbrain.ico").is_file()
+    assert (_ROOT / "launcher" / "secondbrain.png").is_file()
 
 
 def test_root_contract_files_exist():
@@ -10857,6 +11412,9 @@ def test_root_contract_files_exist():
     assert "## `backend/app.py`" in archive
     assert "## `start.py`" in archive
     assert "## `frontend/app.js`" in archive
+    assert "## `launcher/secondbrain.ico`" in archive
+    assert "## `launcher/tray.py`" in archive
+    assert "## `frontend/vendor/cytoscape.min.js`" in archive
 
 
 # --------------------------------------------------------------------------
@@ -11138,6 +11696,7 @@ def test_health_and_settings_and_privacy(client):
     s = client.get("/api/settings").json()
     assert s["privacy"]["telemetry"] is False
     assert s["privacy"]["local"] is True
+    assert s["privacy"].get("activity_watch") is False
 
 
 def test_chat_persists_assistant_reply(client):
@@ -11183,6 +11742,8 @@ def test_frontend_served(client):
     assert 'id="set-auto-backup"' in html
     assert 'id="conv-search"' in html
     assert 'id="gf-around-me"' in html
+    assert 'id="graph-to-me"' in html
+    assert 'id="browse-sort"' in html
 
 
 def test_core_loop_chat_memory_graph_search_rag(client):
@@ -11242,12 +11803,7 @@ if __name__ == "__main__":
 
 ## `tests/conftest.py`
 
-<a id="testsconftestpy"></a>
-
-- size: 2849 bytes
-- sha256: `c4e4b7172bbc525416206c85c967691847a990ae93752ea3ff02df304527e705`
-
-````python
+````
 """Pytest fixtures for Second Brain.
 
 Every test runs against a fresh, isolated temporary SQLite database so tests
@@ -11330,12 +11886,7 @@ def fake_ollama(monkeypatch):
 
 ## `tests/test_api.py`
 
-<a id="teststestapipy"></a>
-
-- size: 10176 bytes
-- sha256: `a5fd69510565c23324922b967204e072b47f92aa54e03e40905ed0fcf420cc4a`
-
-````python
+````
 """API integration tests using FastAPI's TestClient."""
 import os
 import sys
@@ -11538,7 +12089,7 @@ def test_import_notes_extracts_paragraphs(client):
 
 def test_health_reports_version(client):
     h = client.get("/api/health").json()
-    assert h.get("version") == "2.4.0"
+    assert h.get("version") == "2.5.0"
     assert h.get("db_ok") is True
     assert "auto_backup" in h
 
@@ -11601,6 +12152,31 @@ def test_graph_focus_user_hides_islands(client):
     assert any(n["label"] == "Island 0" for n in full["nodes"])
 
 
+def test_settings_reports_db_ok_and_no_activity_watch(client):
+    s = client.get("/api/settings").json()
+    assert s.get("db_ok") is True
+    assert s["privacy"].get("activity_watch") is False
+
+
+def test_entities_sort_degree(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    client.post("/api/chat", json={"content": "My new project Game Engine uses Bevy"})
+    rows = client.get("/api/entities", params={"sort": "degree"}).json()
+    assert rows
+    degrees = [r["degree"] for r in rows]
+    assert degrees == sorted(degrees, reverse=True)
+    names = client.get("/api/entities", params={"sort": "name"}).json()
+    assert [e["name"].lower() for e in names] == sorted(e["name"].lower() for e in names)
+
+
+def test_entity_detail_includes_similar(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    rust = next(e for e in client.get("/api/entities").json() if e["name"] == "Rust")
+    d = client.get(f"/api/entities/{rust['id']}").json()
+    assert "similar" in d
+    assert isinstance(d["similar"], list)
+
+
 def test_chat_empty_and_huge_payload(client):
     empty = client.post("/api/chat", json={"content": "   "})
     assert empty.status_code == 200
@@ -11612,12 +12188,7 @@ def test_chat_empty_and_huge_payload(client):
 
 ## `tests/test_api_phase3.py`
 
-<a id="teststestapiphase3py"></a>
-
-- size: 5976 bytes
-- sha256: `fbefa92e3deb5215e3213deead001f9a2a858d39ec72fe504ae5d1208904ab66`
-
-````python
+````
 """API tests for Phase 3 endpoints: advanced graph, export/import, backup,
 summarization, and filtered search."""
 import json
@@ -11793,12 +12364,7 @@ def test_entity_history_endpoint(client):
 
 ## `tests/test_backup.py`
 
-<a id="teststestbackuppy"></a>
-
-- size: 3220 bytes
-- sha256: `a9a8a9e3dceec173ea36cb7b8a69a64df4a45a95786dbf8163b208b7a73b0feb`
-
-````python
+````
 """Tests for the local backup mechanism."""
 import os
 
@@ -11820,6 +12386,8 @@ def test_backup_list_and_status():
     assert status["count"] >= 1
     assert status["latest"] is not None
     assert status["backup_dir"] == backup.backup_dir()
+    assert status["latest"].get("bytes", 0) > 0
+    assert status["latest"].get("has_db") is True
 
 
 def test_backup_contains_real_data():
@@ -11898,12 +12466,7 @@ def test_no_secrets_in_backup():
 
 ## `tests/test_commands.py`
 
-<a id="teststestcommandspy"></a>
-
-- size: 6002 bytes
-- sha256: `61c12c2dae5ac802c27d75edc1069f3b8b04941c2b0133bdaca31147f8665500`
-
-````python
+````
 """Tests for natural-language memory control commands."""
 from backend import commands, db, store
 
@@ -12066,12 +12629,7 @@ def test_stop_remembering_forgets_entity():
 
 ## `tests/test_export.py`
 
-<a id="teststestexportpy"></a>
-
-- size: 5750 bytes
-- sha256: `b41f23805b91cbdd659b8f14cf20823ccebfb4b7f2925bcc734168c77862689d`
-
-````python
+````
 """Tests for JSON/Markdown export and import (validation, merge, replace)."""
 import json
 
@@ -12244,12 +12802,7 @@ def test_import_merge_reports_exclusive_conflict_and_skips():
 
 ## `tests/test_extraction.py`
 
-<a id="teststestextractionpy"></a>
-
-- size: 10392 bytes
-- sha256: `042f536827a8fcde86f27c33e04263b4dd0dc35dbba34617b931ae86e1c5b5c9`
-
-````python
+````
 """Tests for the extraction pipeline (offline fallback path)."""
 import json
 
@@ -12524,12 +13077,7 @@ def test_confidence_threshold_respected(no_ollama, monkeypatch):
 
 ## `tests/test_frontend.py`
 
-<a id="teststestfrontendpy"></a>
-
-- size: 5376 bytes
-- sha256: `744d365732447b448c38f50832e9f0b570c2f30be238d6b9d069b4731b1f916b`
-
-````python
+````
 """Playwright browser tests for the Second Brain frontend.
 
 These run against the live app server. They exercise the core Chat → Memory →
@@ -12655,11 +13203,17 @@ def test_entity_browser_and_palette_markup():
     assert 'id="set-auto-backup"' in html
     assert 'id="conv-search"' in html
     assert 'id="gf-around-me"' in html
+    assert 'id="graph-to-me"' in html
+    assert 'id="browse-sort"' in html
     assert "function loadBrowse" in js
     assert "function formatImportReport" in js
     assert "/graph?focus=" in js
     assert "function openPalette" in js
     assert "function runGraphLayout" in js
+    assert "function applyRoute" in js
+    assert "function sourceChips" in js
+    assert "data-mid" in js
+    assert "Looks similar" in js
     assert "sources: m.sources" in js
     assert "function restore" not in js or "/backup/restore" in js
 
@@ -12687,12 +13241,7 @@ def test_reset_confirmation(page):
 
 ## `tests/test_graph.py`
 
-<a id="teststestgraphpy"></a>
-
-- size: 4805 bytes
-- sha256: `964361a8a690e1fdc7fe2cf7b5b2e669344c00711e63aad8630bbadf20ccd60e`
-
-````python
+````
 """Tests for graph traversal, filtering, neighborhood, paths, stats and
 multi-hop retrieval."""
 from backend import extract, graph, store
@@ -12844,12 +13393,7 @@ def test_graph_auto_focus_user_neighborhood():
 
 ## `tests/test_launcher.py`
 
-<a id="teststestlauncherpy"></a>
-
-- size: 8594 bytes
-- sha256: `c90d6673d3ee2d3a5f5063ddd9dbebc1627dea526e06a953252d5d7e42469438`
-
-````python
+````
 """Bootstrap / EXE-launcher tests. Does not start a second application."""
 from __future__ import annotations
 
@@ -13102,12 +13646,7 @@ def test_create_server_uses_existing_app():
 
 ## `tests/test_migration.py`
 
-<a id="teststestmigrationpy"></a>
-
-- size: 3365 bytes
-- sha256: `9d8c40bf5aae78e0b0d44a87f40001ea143646dc235791c479c903278b0a2ded`
-
-````python
+````
 """Tests for the database migration path (schema v2 -> v3 and idempotency)."""
 import os
 import sqlite3
@@ -13190,12 +13729,7 @@ def test_migration_idempotent(monkeypatch, tmp_path):
 
 ## `tests/test_ollama.py`
 
-<a id="teststestollamapy"></a>
-
-- size: 2945 bytes
-- sha256: `664fdc5d39b244cedd8c40f23c6f1f7087ea5c3b9201d0b9e2726aec5f92c6b4`
-
-````python
+````
 """Tests for the Ollama-backed extraction path and model switching.
 
 Uses a deterministic fake Ollama so the LLM path is exercised without a real
@@ -13273,12 +13807,7 @@ def test_llm_failure_falls_back_to_rules(fake_ollama, monkeypatch):
 
 ## `tests/test_reliability.py`
 
-<a id="teststestreliabilitypy"></a>
-
-- size: 1468 bytes
-- sha256: `332f5f2b6b9df96f4e7d2f163a4151b572632c13b01b7596b18734bd75e411ad`
-
-````python
+````
 """Malformed input, size caps, and database-recovery safety.
 
 These tests never delete or replace a real user brain. They only use the
@@ -13320,12 +13849,7 @@ def test_conversation_summaries_escape_like_wildcards():
 
 ## `tests/test_search.py`
 
-<a id="teststestsearchpy"></a>
-
-- size: 5454 bytes
-- sha256: `6cf551c08cbc833cc2e8795bb98ea79287686bab4d7d5f9439ee41d3448f1256`
-
-````python
+````
 """Tests for hybrid search, RAG answers, and hallucination protection."""
 from backend import extract, search, store
 
@@ -13493,16 +14017,58 @@ def test_works_at_intent():
     assert search.detect_intent("Where do I work at?") == "organization"
     facts = search.intent_facts("organization")
     assert any("Acme" in f["text"] for f in facts)
+
+
+def test_what_did_i_stop_reads_superseded():
+    extract.extract("I am learning Rust")
+    extract.extract("I stopped learning Rust")
+    a = search.answer("What did I stop?")
+    assert a["status"] == "known"
+    assert "Rust" in a["text"]
+    assert "no longer active" in a["text"]
+
+
+def test_what_changed_this_week():
+    extract.extract("I prefer Python")
+    extract.extract("I prefer Rust instead of Python")
+    a = search.answer("What changed this week?")
+    assert a["status"] == "known"
+    assert a["text"]
+
+
+def test_who_uses_named_entity():
+    extract.extract("My new project Game Engine uses Bevy")
+    a = search.answer("Who uses Bevy?")
+    assert a["status"] == "known"
+    assert "Game Engine" in a["text"]
+    assert "Bevy" in a["text"]
+
+
+def test_when_did_i_start_learning():
+    extract.extract("I am learning Rust")
+    a = search.answer("When did I start learning Rust?")
+    assert a["status"] == "known"
+    assert "Rust" in a["text"]
+    assert "stored" in a["text"].lower()
+
+
+def test_compose_answer_rejects_ungrounded(monkeypatch):
+    extract.extract("I am learning Python")
+    res = search.search("What am I learning?")
+    monkeypatch.setattr(search.ollama, "available", lambda: True)
+    monkeypatch.setattr(
+        search.ollama, "chat",
+        lambda *a, **k: "You're learning Python and also Java at Google.",
+    )
+    out = search.compose_answer("What am I learning?", res, "qwen3:0.6b")
+    assert "Java" not in out["text"]
+    assert "Google" not in out["text"]
+    assert "Python" in out["text"]
 ````
 
 ## `tests/test_search_advanced.py`
 
-<a id="teststestsearchadvancedpy"></a>
-
-- size: 3065 bytes
-- sha256: `5747d3557579619d54497f008d221a05154dc3eaf244ff1fa898f85ec8dd2914`
-
-````python
+````
 """Tests for multi-hop retrieval, explainable ranking, sources, recency and
 superseded exclusion in search."""
 from backend import extract, search, store
@@ -13598,12 +14164,7 @@ def test_recency_boost_present():
 
 ## `tests/test_store.py`
 
-<a id="teststeststorepy"></a>
-
-- size: 6284 bytes
-- sha256: `cd7504c97384e4a3f7f264b7bfa444037854a9245b6300cac03078b75fdf0dcc`
-
-````python
+````
 """Tests for the graph store: entities, merging, confidence, supersession,
 memory history, and persistence."""
 import json
@@ -13768,6 +14329,23 @@ def test_integrity_ok_on_healthy_db():
     assert db.integrity_ok() is True
 
 
+def test_similar_entities_by_embedding():
+    a = store.create_entity(
+        "Alpha", "concept", embedding=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+    )
+    b = store.create_entity(
+        "AlphaPrime", "concept",
+        embedding=np.array([0.97, 0.05, 0.0], dtype=np.float32),
+    )
+    store.create_entity(
+        "Unrelated", "concept", embedding=np.array([0.0, 1.0, 0.0], dtype=np.float32),
+    )
+    hits = store.similar_entities(a)
+    ids = {h["id"] for h in hits}
+    assert b in ids
+    assert all(h["score"] >= 0.78 for h in hits)
+
+
 def test_merge_preserves_description():
     a = store.create_entity("Nebula", "project", description="AI workspace")
     b = store.create_entity("Nebula2", "project", description="")
@@ -13777,12 +14355,7 @@ def test_merge_preserves_description():
 
 ## `tests/test_summarize.py`
 
-<a id="teststestsummarizepy"></a>
-
-- size: 2508 bytes
-- sha256: `406f096e94501d4026f5f2992b6882df87cf8569f1f9b072587f276a7f50edf2`
-
-````python
+````
 """Tests for memory consolidation / summarization."""
 import json
 
@@ -13853,5 +14426,70 @@ def test_no_repeated_summary_of_same_cluster():
     cands = summarize.find_consolidation_candidates(min_shared=2)
     # Nebula should be skipped now that it's been summarized.
     assert not any(c["entity_name"] == "Nebula" for c in cands)
+````
+
+## `tests/test_tray.py`
+
+````
+"""Tray and EXE icon tests. No activity watching."""
+from pathlib import Path
+
+from launcher import icons, tray
+
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_activity_watch_is_hard_off():
+    assert tray.should_watch_activity() is False
+    assert tray.ACTIVITY_WATCH_ENABLED is False
+    assert tray.ACTIVITY_POLL_SECONDS is None
+
+
+def test_clip_remember_text_skips_empty_and_caps():
+    assert tray.clip_remember_text("   ") is None
+    assert tray.clip_remember_text("") is None
+    long = "x" * 9000
+    clipped = tray.clip_remember_text(long)
+    assert clipped is not None and len(clipped) == 8000
+
+
+def test_tray_source_has_no_activity_poller():
+    src = Path(tray.__file__).read_text(encoding="utf-8")
+    assert "GetForegroundWindow" not in src
+    assert "BitBlt" not in src
+    assert "SetWindowsHook" not in src
+    assert "ACTIVITY_WATCH_ENABLED = False" in src
+    assert "def should_watch_activity" in src
+
+
+def test_icons_exist():
+    ico = ROOT / "launcher" / "secondbrain.ico"
+    png = ROOT / "launcher" / "secondbrain.png"
+    assert ico.is_file() and ico.stat().st_size > 1000
+    assert png.is_file() and png.stat().st_size > 1000
+    assert icons.icon_ico() == ico
+    assert icons.icon_png() == png
+
+
+def test_spec_embeds_icon():
+    spec = (ROOT / "secondbrain.spec").read_text(encoding="utf-8")
+    assert 'icon="launcher/secondbrain.ico"' in spec
+    assert "launcher/secondbrain.ico" in spec
+
+
+def test_ico_has_standard_windows_sizes():
+    import struct
+    data = (ROOT / "launcher" / "secondbrain.ico").read_bytes()
+    reserved, typ, count = struct.unpack_from("<HHH", data, 0)
+    assert reserved == 0 and typ == 1 and count >= 4
+    sizes = set()
+    off = 6
+    for _ in range(count):
+        w, h = struct.unpack_from("<BB", data, off)
+        sizes.add(w or 256)
+        sizes.add(h or 256)
+        off += 16
+    assert {16, 32, 48, 256} <= sizes
 ````
 

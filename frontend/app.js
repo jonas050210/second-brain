@@ -59,17 +59,30 @@ let typeColors = TYPE_COLORS;
    Navigation
    ========================================================================== */
 const VIEWS = ["dashboard", "chat", "graph", "browse", "memory", "search", "settings"];
+let currentView = "dashboard";
 
-function showView(name) {
+function parseHash() {
+  const raw = (location.hash || "").replace(/^#/, "");
+  const parts = raw.split("/");
+  return { view: parts[0] || "", extra: parts[1] || "" };
+}
+
+function setHash(view, extra) {
+  const next = extra ? ("#" + view + "/" + extra) : ("#" + view);
+  if (location.hash !== next) {
+    try { history.replaceState(null, "", next); } catch {}
+  }
+}
+
+function showView(name, opts = {}) {
   if (!VIEWS.includes(name)) name = "dashboard";
+  currentView = name;
   VIEWS.forEach((v) => {
     const el = $("#view-" + v);
     if (el) el.classList.toggle("active", v === name);
   });
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
-  if (location.hash !== "#" + name) {
-    try { history.replaceState(null, "", "#" + name); } catch {}
-  }
+  if (!opts.keepHash) setHash(name);
   if (name === "graph") requestAnimationFrame(() => { if (cy) cy.fit(undefined, 30); });
   if (name === "dashboard") loadDashboard();
   if (name === "memory") loadMemory();
@@ -78,10 +91,22 @@ function showView(name) {
   if (name === "settings") { loadSettings(); loadBackupStatus(); }
 }
 
-window.addEventListener("hashchange", () => {
-  const v = location.hash.replace(/^#/, "");
-  if (VIEWS.includes(v)) showView(v);
-});
+function applyRoute() {
+  const h = parseHash();
+  if (h.view === "entity" && h.extra) {
+    showView("graph", { keepHash: true });
+    openEntity(h.extra);
+    return;
+  }
+  if (h.view === "chat") {
+    showView("chat", { keepHash: true });
+    if (h.extra) openConversation(Number(h.extra));
+    return;
+  }
+  if (VIEWS.includes(h.view)) showView(h.view, { keepHash: true });
+}
+
+window.addEventListener("hashchange", applyRoute);
 
 $$(".nav-item").forEach((b) =>
   b.addEventListener("click", () => showView(b.dataset.view)));
@@ -188,6 +213,18 @@ function rememberChips(remembered) {
   return `<div class="remembered-title">Memory updated</div>${parts}`;
 }
 
+function sourceChips(sources) {
+  if (!sources || !sources.length) return "";
+  return `<div class="remembered-title">Sources</div>` +
+    sources.map((s) => `<span class="remembered-chip" data-id="${s.entity_id}">${esc(s.name)}${s.fact ? ` · <span class="conf">${esc(s.fact)}</span>` : ""}${s.snippet ? ` · <span class="conf">${esc(s.snippet)}</span>` : ""}</span>`).join("");
+}
+
+function attachChips(root) {
+  if (!root) return;
+  root.querySelectorAll(".remembered-chip").forEach((chip) =>
+    chip.addEventListener("click", () => openEntity(chip.dataset.id)));
+}
+
 function appendMessage(role, content, opts = {}) {
   $("#chat-empty").style.display = "none";
   const wrap = document.createElement("div");
@@ -220,6 +257,14 @@ function appendMessage(role, content, opts = {}) {
     note.className = "superseded-note";
     note.textContent = "Superseded: " + opts.superseded.join(", ");
     wrap.appendChild(note);
+  }
+
+  if (opts.sources && opts.sources.length) {
+    const src = document.createElement("div");
+    src.className = "remembered-box";
+    src.innerHTML = sourceChips(opts.sources);
+    wrap.appendChild(src);
+    attachChips(src);
   }
 
   const t = document.createElement("div");
@@ -305,11 +350,9 @@ async function sendChat() {
     if (sources && sources.length) {
       const src = document.createElement("div");
       src.className = "remembered-box";
-      src.innerHTML = `<div class="remembered-title">Sources</div>` +
-        sources.map((s) => `<span class="remembered-chip" data-id="${s.entity_id}">${esc(s.name)}${s.fact ? ` · <span class="conf">${esc(s.fact)}</span>` : ""}${s.snippet ? ` · <span class="conf">${esc(s.snippet)}</span>` : ""}</span>`).join("");
+      src.innerHTML = sourceChips(sources);
       wrap.appendChild(src);
-      src.querySelectorAll(".remembered-chip").forEach((chip) =>
-        chip.addEventListener("click", () => openEntity(chip.dataset.id)));
+      attachChips(src);
     }
     const t = document.createElement("div");
     t.className = "msg-time";
@@ -397,6 +440,7 @@ $("#chat-input").addEventListener("input", (e) => {
 $("#chat-new").addEventListener("click", async () => {
   const r = await api("/conversations/new", { method: "POST" });
   currentConversationId = r.conversation_id;
+  setHash("chat", r.conversation_id);
   $("#chat-messages").innerHTML = "";
   $("#chat-empty").style.display = "";
   toast("Started a new conversation");
@@ -488,6 +532,7 @@ async function renameConversation(id, el) {
 
 async function openConversation(id) {
   currentConversationId = id;
+  setHash("chat", id);
   $("#chat-messages").innerHTML = "";
   $("#chat-empty").style.display = "";
   const msgs = await api(`/conversations/${id}/messages`);
@@ -672,6 +717,8 @@ async function loadBrowse() {
   if (type) params.set("type", type);
   if ($("#browse-pinned") && $("#browse-pinned").checked) params.set("pinned", "true");
   if ($("#browse-important") && $("#browse-important").checked) params.set("important", "true");
+  const sort = $("#browse-sort") && $("#browse-sort").value;
+  if (sort && sort !== "name") params.set("sort", sort);
   const ents = await api("/entities?" + params.toString());
   list.innerHTML = ents.length ? ents.map((e) => `
     <div class="browse-row" data-id="${e.id}">
@@ -783,9 +830,20 @@ if ($("#graph-zoom-out")) $("#graph-zoom-out").addEventListener("click", () => {
 if ($("#graph-fit")) $("#graph-fit").addEventListener("click", () => { if (cy) cy.fit(undefined, 40); });
 if ($("#graph-expand")) $("#graph-expand").addEventListener("click", expandSelectedNeighborhood);
 if ($("#graph-path")) $("#graph-path").addEventListener("click", showGraphPath);
+if ($("#graph-to-me")) $("#graph-to-me").addEventListener("click", pathToUser);
 
 let lastFocusedId = null;
 let pathEnds = [];
+
+async function pathToUser() {
+  if (!cy) return;
+  const id = lastFocusedId || (cy.$("node:selected").length ? cy.$("node:selected")[0].id() : null);
+  if (!id) { toast("Select a node first"); return; }
+  const roots = cy.nodes().filter((n) => String(n.data("label") || "").toLowerCase() === "user");
+  if (!roots.length) { toast("No User node in this view"); return; }
+  pathEnds = [String(roots[0].id()), String(id)];
+  await showGraphPath();
+}
 
 async function showGraphPath() {
   if (pathEnds.length < 2) { toast("Click two nodes, then Path"); return; }
@@ -873,7 +931,7 @@ async function loadMemory() {
     <div class="tl-day">
       <div class="tl-day-head">${esc(day)}</div>
       ${items.map((m) => {
-        return `<div class="tl-item">
+        return `<div class="tl-item"${m.message_id ? ` data-mid="${m.message_id}" title="Open source message"` : ""}>
           <div class="tl-time">${fmtTime(m.created_at)}</div>
           <div class="tl-text">${esc(m.text)}<span class="tl-kind">${esc(m.kind)}</span>
           ${m.confidence ? `<span class="conf">${Math.round(m.confidence * 100)}%</span>` : ""}</div>
@@ -881,6 +939,16 @@ async function loadMemory() {
       }).join("")}
     </div>`).join("");
   $("#timeline").innerHTML = html || `<p class="muted">No memories recorded yet.</p>`;
+  $$("#timeline .tl-item").forEach((el) => {
+    if (!el.dataset.mid) return;
+    el.style.cursor = "pointer";
+    el.addEventListener("click", async () => {
+      try {
+        const src = await api("/messages/" + el.dataset.mid);
+        openSource(src);
+      } catch (err) { toast(err.message); }
+    });
+  });
 }
 
 $("#mem-kind").addEventListener("change", loadMemory);
@@ -970,11 +1038,13 @@ function openEntity(id) {
   loadEntity(id);
   $("#entity-panel").classList.add("open");
   $("#entity-overlay").classList.add("show");
+  if (id != null && id !== "") setHash("entity", id);
 }
 function closeEntity() {
   $("#entity-panel").classList.remove("open");
   $("#entity-overlay").classList.remove("show");
   currentEntity = null;
+  if (parseHash().view === "entity") setHash(currentView || "dashboard");
 }
 $("#entity-overlay").addEventListener("click", closeEntity);
 
@@ -1083,6 +1153,19 @@ async function loadEntity(id) {
       <h3>Changes</h3>
       ${d.history.changes.map((c) => `
         <div class="entity-mem">${esc(c.text)} <span class="muted" style="font-size:11px">${fmtTime(c.created_at)} · ${esc(c.kind)}</span></div>`).join("")}
+    </div>` : ""}
+
+    ${(d.similar && d.similar.length) ? `
+    <div class="entity-sec">
+      <h3>Looks similar</h3>
+      ${d.similar.map((s) => `
+        <div class="rel-item" data-id="${s.id}">
+          <span style="color:${typeColors[s.type] || "#fff"}">●</span>
+          <span class="ri-name">${esc(s.name)}</span>
+          ${badge(s.type)}
+          <span class="rel-conf">${Math.round((s.score || 0) * 100)}%</span>
+        </div>`).join("")}
+      <p class="muted">Possible duplicates. Use Merge if they are the same thing.</p>
     </div>` : ""}
 
     <div class="entity-sec">
@@ -1268,7 +1351,8 @@ async function loadSettings() {
       <p class="hint">Architecture: <strong>${esc((priv.mode || "local-first").toUpperCase())}</strong></p>
       <p class="hint">Local: ${priv.local === false ? "no" : "yes"} · Private: ${priv.private === false ? "no" : "yes"} · Telemetry: ${priv.telemetry ? "on" : "off"} · Cloud: ${priv.cloud ? "yes" : "none"}</p>
       <p class="hint">Personal memory stays on this machine unless you export it yourself.</p>
-      <p class="hint">Database: <code>${esc(s.db_path || "")}</code></p>`;
+      <p class="hint">Database: <code>${esc(s.db_path || "")}</code> · Integrity: <strong>${s.db_ok === false ? "not ok" : "ok"}</strong></p>
+      <p class="hint">Activity watch: ${priv.activity_watch ? "on" : "off"} — Second Brain never screenshots or polls what you are doing.</p>`;
   }
   document.body.classList.toggle("theme-light", s.theme === "light");
 }
@@ -1415,7 +1499,7 @@ async function loadBackupStatus() {
     box.innerHTML = items.length ? items.slice(0, 8).map((b) => `
       <div class="browse-row" style="margin-top:8px">
         <span class="browse-name">${esc(b.name)}</span>
-        <span class="browse-meta">${esc((b.created_at || "").slice(0, 19))}</span>
+        <span class="browse-meta">${esc((b.created_at || "").slice(0, 19))}${b.bytes ? " · " + Math.round(b.bytes / 1024) + " KB" : ""}${b.has_db === false ? " · missing db" : ""}</span>
         <button class="btn-ghost backup-restore" data-name="${esc(b.name)}">Restore</button>
       </div>`).join("") : "";
     box.querySelectorAll(".backup-restore").forEach((btn) =>
@@ -1484,10 +1568,13 @@ async function renderPalette(q) {
   const query = (q || "").trim().toLowerCase();
   const views = VIEWS.map((v) => ({ kind: "view", id: v, label: v[0].toUpperCase() + v.slice(1) }));
   let ents = [];
+  let convs = [];
   try { ents = await api("/entities" + (query ? ("?q=" + encodeURIComponent(query)) : "")); } catch {}
+  try { convs = await api("/conversations" + (query ? ("?q=" + encodeURIComponent(query)) : "")); } catch {}
   const viewHits = views.filter((v) => !query || v.label.toLowerCase().includes(query));
-  const entHits = ents.slice(0, 12).map((e) => ({ kind: "entity", id: e.id, label: e.name, type: e.type }));
-  paletteItems = viewHits.concat(entHits);
+  const entHits = ents.slice(0, 10).map((e) => ({ kind: "entity", id: e.id, label: e.name, type: e.type }));
+  const convHits = (convs || []).slice(0, 6).map((c) => ({ kind: "conversation", id: c.id, label: c.title || ("Chat " + c.id) }));
+  paletteItems = viewHits.concat(convHits, entHits);
   paletteIndex = 0;
   box.innerHTML = paletteItems.map((it, i) => `
     <div class="palette-item ${i === 0 ? "active" : ""}" data-i="${i}">
@@ -1504,6 +1591,7 @@ function choosePalette(i) {
   closePalette();
   if (!it) return;
   if (it.kind === "view") showView(it.id);
+  else if (it.kind === "conversation") { showView("chat"); openConversation(it.id); }
   else openEntity(it.id);
 }
 
@@ -1522,6 +1610,7 @@ if ($("#browse-q")) $("#browse-q").addEventListener("input", loadBrowse);
 if ($("#browse-type")) $("#browse-type").addEventListener("change", loadBrowse);
 if ($("#browse-pinned")) $("#browse-pinned").addEventListener("change", loadBrowse);
 if ($("#browse-important")) $("#browse-important").addEventListener("change", loadBrowse);
+if ($("#browse-sort")) $("#browse-sort").addEventListener("change", loadBrowse);
 
 document.addEventListener("keydown", (e) => {
   const tag = (e.target && e.target.tagName) || "";
@@ -1548,6 +1637,7 @@ document.addEventListener("keydown", (e) => {
    Boot
    ========================================================================== */
 async function boot() {
+  const wanted = location.hash;
   refreshStatus();
   await loadChatHistory();
   await buildGraph();
@@ -1556,8 +1646,12 @@ async function boot() {
   loadBackupStatus();
   loadSummarizeCandidates();
   loadConversations();
-  const initial = location.hash.replace(/^#/, "");
-  showView(VIEWS.includes(initial) ? initial : "dashboard");
+  if (wanted && wanted !== "#") {
+    try { history.replaceState(null, "", wanted); } catch {}
+    applyRoute();
+  } else {
+    showView("dashboard");
+  }
   setInterval(refreshStatus, 15000);
 }
 boot();

@@ -12,6 +12,8 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 datas = [
     ("frontend", "frontend"),
     (".env.example", "."),
+    ("launcher/secondbrain.ico", "launcher"),
+    ("launcher/secondbrain.png", "launcher"),
 ]
 binaries = []
 hidden = []
@@ -42,6 +44,7 @@ hidden += [
     "backend.graph", "backend.commands", "backend.export", "backend.backup",
     "backend.summarize", "backend.ollama",
     "launcher", "launcher.bootstrap", "launcher.gui",
+    "launcher.icons", "launcher.tray",
     "multipart", "python_multipart",
 ]
 
@@ -81,6 +84,7 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
+    icon="launcher/secondbrain.ico",
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

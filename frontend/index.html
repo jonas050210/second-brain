@@ -190,6 +190,7 @@
             <button class="btn-ghost" id="graph-fit" title="Fit">Fit</button>
             <button class="btn-ghost" id="graph-expand" title="Expand neighborhood">Expand</button>
             <button class="btn-ghost" id="graph-path" title="Path between last two nodes">Path</button>
+            <button class="btn-ghost" id="graph-to-me" title="Path from User to the selected node">To me</button>
           </div>
           <div id="cy"></div>
         </div>
@@ -216,6 +217,12 @@
             <input type="checkbox" id="browse-important" />
             <span>Important</span>
           </label>
+          <select id="browse-sort" class="input" title="Sort entities">
+            <option value="name">Name</option>
+            <option value="degree">Most linked</option>
+            <option value="recent">Recently updated</option>
+            <option value="confidence">Confidence</option>
+          </select>
         </div>
         <div id="browse-list" class="browse-list"></div>
       </section>

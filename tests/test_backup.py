@@ -19,6 +19,8 @@ def test_backup_list_and_status():
     assert status["count"] >= 1
     assert status["latest"] is not None
     assert status["backup_dir"] == backup.backup_dir()
+    assert status["latest"].get("bytes", 0) > 0
+    assert status["latest"].get("has_db") is True
 
 
 def test_backup_contains_real_data():

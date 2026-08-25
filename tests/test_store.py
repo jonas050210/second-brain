@@ -162,6 +162,23 @@ def test_integrity_ok_on_healthy_db():
     assert db.integrity_ok() is True
 
 
+def test_similar_entities_by_embedding():
+    a = store.create_entity(
+        "Alpha", "concept", embedding=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+    )
+    b = store.create_entity(
+        "AlphaPrime", "concept",
+        embedding=np.array([0.97, 0.05, 0.0], dtype=np.float32),
+    )
+    store.create_entity(
+        "Unrelated", "concept", embedding=np.array([0.0, 1.0, 0.0], dtype=np.float32),
+    )
+    hits = store.similar_entities(a)
+    ids = {h["id"] for h in hits}
+    assert b in ids
+    assert all(h["score"] >= 0.78 for h in hits)
+
+
 def test_merge_preserves_description():
     a = store.create_entity("Nebula", "project", description="AI workspace")
     b = store.create_entity("Nebula2", "project", description="")

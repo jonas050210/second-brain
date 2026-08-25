@@ -100,6 +100,21 @@ def create_backup():
     return {"ok": True, "path": target_dir, **meta}
 
 
+def _dir_size(path):
+    total = 0
+    try:
+        for root, _dirs, files in os.walk(path):
+            for name in files:
+                fp = os.path.join(root, name)
+                try:
+                    total += os.path.getsize(fp)
+                except OSError:
+                    continue
+    except OSError:
+        return 0
+    return total
+
+
 def list_backups():
     """List all backups, newest first."""
     out = []
@@ -118,6 +133,8 @@ def list_backups():
                     meta = json.load(f)
             except ValueError:
                 meta = {}
+        meta["bytes"] = _dir_size(p)
+        meta["has_db"] = os.path.isfile(os.path.join(p, "brain.db"))
         out.append({"name": name, "path": p, **meta})
     return out
 

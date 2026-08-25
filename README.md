@@ -58,7 +58,8 @@ python -m pip install pyinstaller
 python -m launcher.build_exe
 ```
 
-That produces **`dist/SecondBrain.exe`**. Double-click it.
+That produces **`dist/SecondBrain.exe`** with the Second Brain icon
+(`launcher/secondbrain.ico`). Double-click it.
 
 First launch shows a dark setup window (version, current step, progress, log, Ollama status). It:
 
@@ -71,7 +72,12 @@ First launch shows a dark setup window (version, current step, progress, log, Ol
 
 If Ollama is down, the window says offline and the app uses the rule-based fallback. It does not crash.
 
-Later launches skip installs, skip model downloads, and reopen the same database. The setup window stays open with **Open browser** / **Quit** so the server is not killed when the first-run checks finish.
+Later launches skip installs, skip model downloads, and reopen the same database. The setup window stays open with **Open browser** / **Hide to tray** / **Quit** so the server is not killed when the first-run checks finish.
+
+The optional tray does **not** watch your screen, windows, or typing. It only
+opens the app, quits, or (if you click it) remembers the current clipboard
+through the same chat extractor. Auto-capturing “what you are doing” every
+few minutes would store junk and secrets. That is intentionally not a feature.
 
 `start.py` remains the normal Python launcher. The EXE is an additional bootstrapper, not a second application.
 
@@ -176,8 +182,10 @@ silently delete history.
 
 Keyword + semantic + graph + recency + confidence + active/superseded + bounded
 multi-hop. Short names (`Go`, `C#`, `AI`) are searchable. Direct questions
-such as “Where do I live?” or “What technology does the game engine use?”
-read the graph first. If there is no evidence, the answer is UNKNOWN.
+such as “Where do I live?”, “What technology does the game engine use?”,
+“Who uses Bevy?”, “When did I start learning Rust?”, “What did I stop?”,
+and “What changed this week?” read the graph first. If there is no evidence,
+the answer is UNKNOWN. Ollama replies that invent names are dropped.
 
 ---
 
@@ -188,7 +196,8 @@ relation / confidence / status / pinned / important filters, expand, focus,
 edit, delete, merge. Layouts: force, group-by-type, from-User. Relationship
 types can be edited on an entity. Isolated nodes can be hidden. No fabricated
 nodes. Brains larger than 40 entities default to **Around me** (User + 2 hops);
-Reset view loads the full graph.
+Reset view loads the full graph. `#entity/12` and `#chat/3` survive refresh.
+The entity panel lists near-duplicates so you can merge them yourself.
 
 ---
 

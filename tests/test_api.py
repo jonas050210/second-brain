@@ -200,7 +200,7 @@ def test_import_notes_extracts_paragraphs(client):
 
 def test_health_reports_version(client):
     h = client.get("/api/health").json()
-    assert h.get("version") == "2.4.0"
+    assert h.get("version") == "2.5.0"
     assert h.get("db_ok") is True
     assert "auto_backup" in h
 
@@ -261,6 +261,31 @@ def test_graph_focus_user_hides_islands(client):
     assert "Island 0" not in labels
     full = client.get("/api/graph", params={"focus": "all"}).json()
     assert any(n["label"] == "Island 0" for n in full["nodes"])
+
+
+def test_settings_reports_db_ok_and_no_activity_watch(client):
+    s = client.get("/api/settings").json()
+    assert s.get("db_ok") is True
+    assert s["privacy"].get("activity_watch") is False
+
+
+def test_entities_sort_degree(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    client.post("/api/chat", json={"content": "My new project Game Engine uses Bevy"})
+    rows = client.get("/api/entities", params={"sort": "degree"}).json()
+    assert rows
+    degrees = [r["degree"] for r in rows]
+    assert degrees == sorted(degrees, reverse=True)
+    names = client.get("/api/entities", params={"sort": "name"}).json()
+    assert [e["name"].lower() for e in names] == sorted(e["name"].lower() for e in names)
+
+
+def test_entity_detail_includes_similar(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    rust = next(e for e in client.get("/api/entities").json() if e["name"] == "Rust")
+    d = client.get(f"/api/entities/{rust['id']}").json()
+    assert "similar" in d
+    assert isinstance(d["similar"], list)
 
 
 def test_chat_empty_and_huge_payload(client):

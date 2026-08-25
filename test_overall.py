@@ -91,6 +91,8 @@ def test_frontend_assets_present():
     assert (Path(config.FRONTEND_DIR) / "app.js").is_file()
     assert (Path(config.FRONTEND_DIR) / "style.css").is_file()
     assert (Path(config.FRONTEND_DIR) / "vendor" / "cytoscape.min.js").is_file()
+    assert (_ROOT / "launcher" / "secondbrain.ico").is_file()
+    assert (_ROOT / "launcher" / "secondbrain.png").is_file()
 
 
 def test_root_contract_files_exist():
@@ -103,6 +105,9 @@ def test_root_contract_files_exist():
     assert "## `backend/app.py`" in archive
     assert "## `start.py`" in archive
     assert "## `frontend/app.js`" in archive
+    assert "## `launcher/secondbrain.ico`" in archive
+    assert "## `launcher/tray.py`" in archive
+    assert "## `frontend/vendor/cytoscape.min.js`" in archive
 
 
 # --------------------------------------------------------------------------
@@ -384,6 +389,7 @@ def test_health_and_settings_and_privacy(client):
     s = client.get("/api/settings").json()
     assert s["privacy"]["telemetry"] is False
     assert s["privacy"]["local"] is True
+    assert s["privacy"].get("activity_watch") is False
 
 
 def test_chat_persists_assistant_reply(client):
@@ -429,6 +435,8 @@ def test_frontend_served(client):
     assert 'id="set-auto-backup"' in html
     assert 'id="conv-search"' in html
     assert 'id="gf-around-me"' in html
+    assert 'id="graph-to-me"' in html
+    assert 'id="browse-sort"' in html
 
 
 def test_core_loop_chat_memory_graph_search_rag(client):

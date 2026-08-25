@@ -646,6 +646,147 @@ def _uses_of_answer(query_text):
     }
 
 
+_STOPPED_Q = re.compile(
+    r"^(?:what did i stop|what have i stopped|what did i quit)(?:\s+\w+)?\??$",
+    re.I,
+)
+_CHANGED_Q = re.compile(
+    r"^(?:what changed(?: this week| recently)?|what did i change(?: this week| recently)?)\??$",
+    re.I,
+)
+_USED_BY = re.compile(
+    r"^(?:who uses|what uses|which (?:projects?|apps?|tools?) (?:use|uses))\s+(.+?)\??$",
+    re.I,
+)
+_WHEN_Q = re.compile(
+    r"^when did i (?:start |begin )?(?:learning |using |working (?:on |at )?"
+    r"|living (?:in )?|meet(?:ing)? )?(.+?)\??$",
+    re.I,
+)
+
+
+def _used_by_answer(query_text):
+    """Inverse of uses-of: which stored things use this entity."""
+    m = _USED_BY.match((query_text or "").strip())
+    if not m:
+        return None
+    ent = _resolve_named_entity(m.group(1))
+    if not ent:
+        return _unknown(query_text)
+    needle = f' uses {ent["name"]}'
+    facts = [f for f in graph_facts_for_entity(ent["id"]) if needle in f.get("text", "")]
+    if not facts:
+        return {
+            "text": f'I don\'t have a stored uses-relationship pointing at {ent["name"]}.',
+            "status": "unknown",
+            "sources": [],
+            "final": True,
+        }
+    return {
+        "text": "; ".join(f["text"] for f in facts[:8]) + ". (from stored memory)",
+        "status": "known",
+        "sources": sources_for_facts(facts),
+        "final": True,
+    }
+
+
+def _when_answer(query_text):
+    """Date of the earliest stored fact about a named entity. Never invents."""
+    m = _WHEN_Q.match((query_text or "").strip())
+    if not m:
+        return None
+    ent = _resolve_named_entity(m.group(1))
+    if not ent:
+        return _unknown(query_text)
+    uid = store.ensure_user_entity()
+    rels = db.query(
+        "SELECT r.*, s.name sname, t.name tname FROM relationships r "
+        "JOIN entities s ON s.id=r.source_id JOIN entities t ON t.id=r.target_id "
+        "WHERE (r.source_id=? AND r.target_id=?) OR (r.source_id=? AND r.target_id=?) "
+        "ORDER BY r.created_at ASC, r.id ASC",
+        (uid, ent["id"], ent["id"], uid),
+    )
+    if rels:
+        first = rels[0]
+        when = (first.get("created_at") or "")[:10] or "an unknown date"
+        extra = " (no longer active)" if first.get("status") != "active" else ""
+        fact = {
+            "text": f'{first["sname"]} {first["relation"]} {first["tname"]}',
+            "entities": [first["source_id"], first["target_id"]],
+            "source_message_id": first.get("source_message_id"),
+            "confidence": first.get("confidence") or 0.8,
+        }
+        return {
+            "text": (
+                f'You first stored “{fact["text"]}” on {when}{extra}. '
+                f"(from stored memory)"
+            ),
+            "status": "known",
+            "sources": sources_for_facts([fact]),
+            "final": True,
+        }
+    when = (ent.get("created_at") or "")[:10]
+    if not when:
+        return _unknown(query_text)
+    return {
+        "text": f'{ent["name"]} was first stored on {when}. (from stored memory)',
+        "status": "known",
+        "sources": sources_for_facts([{
+            "text": ent["name"], "entities": [ent["id"]],
+            "source_message_id": ent.get("source_message_id"),
+        }]),
+        "final": True,
+    }
+
+
+def _stopped_answer(query_text):
+    """Active history: superseded facts. Never invents."""
+    if not _STOPPED_Q.match((query_text or "").strip()):
+        return None
+    rels = db.query(
+        "SELECT r.source_message_id smid, s.name sname, t.name tname, r.relation rel, "
+        "r.confidence c, r.source_id sid, r.target_id tid "
+        "FROM relationships r "
+        "JOIN entities s ON s.id=r.source_id JOIN entities t ON t.id=r.target_id "
+        "WHERE r.status='superseded' ORDER BY r.created_at DESC LIMIT 12"
+    )
+    if not rels:
+        return _unknown(query_text)
+    facts = [{"text": f'{r["sname"]} {r["rel"]} {r["tname"]} (no longer active)',
+              "confidence": r["c"], "entities": [r["sid"], r["tid"]],
+              "source_message_id": r["smid"]} for r in rels]
+    return {
+        "text": "; ".join(f["text"] for f in facts[:8]) + ". (from stored memory)",
+        "status": "known",
+        "sources": sources_for_facts(facts),
+        "final": True,
+    }
+
+
+def _changed_answer(query_text):
+    """Recent superseded / conflict / command memories from the last 7 days."""
+    if not _CHANGED_Q.match((query_text or "").strip()):
+        return None
+    import datetime as _dt
+    cutoff = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=7)).isoformat()
+    mems = db.query(
+        "SELECT * FROM memories WHERE kind IN ('superseded','conflict','command') "
+        "AND created_at >= ? ORDER BY created_at DESC LIMIT 12",
+        (cutoff,),
+    )
+    if not mems:
+        return _unknown(query_text)
+    facts = [{"text": m["text"], "confidence": m.get("confidence") or 0.8,
+              "entities": json_loads(m.get("entity_ids")),
+              "source_message_id": m.get("message_id")} for m in mems]
+    return {
+        "text": "; ".join(f["text"] for f in facts[:8]) + ". (from stored memory)",
+        "status": "known",
+        "sources": sources_for_facts(facts),
+        "final": True,
+    }
+
+
 def retrieve_answer(query_text, filters=None):
     """Deterministic retrieval. `final` answers skip the LLM composer."""
     direct = _direct_fact_answer(query_text)
@@ -653,12 +794,24 @@ def retrieve_answer(query_text, filters=None):
         out = dict(direct)
         out["final"] = True
         return out
+    stopped = _stopped_answer(query_text)
+    if stopped is not None:
+        return stopped
+    changed = _changed_answer(query_text)
+    if changed is not None:
+        return changed
     listed = _list_intent_answer(query_text)
     if listed is not None:
         return listed
     uses = _uses_of_answer(query_text)
     if uses is not None:
         return uses
+    used_by = _used_by_answer(query_text)
+    if used_by is not None:
+        return used_by
+    when = _when_answer(query_text)
+    if when is not None:
+        return when
     about = _about_answer(query_text)
     if about is not None:
         out = dict(about)
@@ -795,7 +948,7 @@ def compose_answer(query_text, res, model, context=None):
         try:
             text = ollama.chat(model, _composer_messages(query_text, res, context),
                                temperature=0.2).strip()
-            if text:
+            if text and reply_is_grounded(text, res, query_text):
                 return {"text": text, "status": status, "sources": sources}
         except Exception:
             pass

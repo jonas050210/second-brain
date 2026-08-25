@@ -17,6 +17,7 @@ import webbrowser
 from typing import Callable
 
 from launcher.bootstrap import APP_VERSION, StepResult, bootstrap_ok, wait_for_http
+from launcher.icons import icon_ico, icon_png
 
 BG = "#070a13"
 PANEL = "#0f1628"
@@ -36,6 +37,30 @@ def tk_available() -> bool:
         return True
     except Exception:
         return False
+
+
+def apply_window_icon(root) -> None:
+    """Set the setup-window icon when the PNG/ICO shipped with the EXE exists."""
+    png = icon_png()
+    if png is not None:
+        try:
+            img = root.tk.call("image", "create", "photo", "-file", str(png))
+            root.tk.call("wm", "iconphoto", root._w, img)
+            root._sb_icon = img
+        except Exception:
+            try:
+                import tkinter as tk
+                photo = tk.PhotoImage(file=str(png))
+                root.iconphoto(True, photo)
+                root._sb_icon = photo
+            except Exception:
+                pass
+    ico = icon_ico()
+    if ico is not None and os.name == "nt":
+        try:
+            root.iconbitmap(str(ico))
+        except Exception:
+            pass
 
 
 def native_alert(title: str, message: str) -> None:
@@ -74,6 +99,7 @@ class SetupWindow:
         self.root.geometry("620x580")
         self.root.minsize(520, 460)
         self.root.resizable(True, True)
+        apply_window_icon(self.root)
 
         self._status = tk.StringVar(value="Initializing Second Brain")
         self._ollama = tk.StringVar(value="Ollama: checking…")
@@ -160,7 +186,14 @@ class SetupWindow:
             activeforeground=TEXT, relief="flat", padx=12, pady=5,
             font=("Segoe UI", 9), cursor="hand2",
         )
+        self.btn_tray = tk.Button(
+            self.btn_row, text="Hide to tray", command=self._hide_to_tray,
+            bg="#132337", fg=MUTED, activebackground="#1e3a4c",
+            activeforeground=TEXT, relief="flat", padx=12, pady=5,
+            font=("Segoe UI", 9), cursor="hand2",
+        )
         self._url = "http://127.0.0.1:8000"
+        self._tray = None
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -170,10 +203,30 @@ class SetupWindow:
         except Exception:
             self.append_log("Could not open the browser. Visit " + self._url)
 
+    def _hide_to_tray(self) -> None:
+        """Hide the setup window. Tray does not watch the desktop."""
+        try:
+            self.root.withdraw()
+        except Exception:
+            pass
+        self.append_log("Hidden. Tray / taskbar keeps Second Brain running. It does not watch what you do.")
+
+    def _show_window(self) -> None:
+        try:
+            self.root.deiconify()
+            self.root.lift()
+        except Exception:
+            pass
+
     def _on_close(self) -> None:
         if self._closed:
             return
         self._closed = True
+        if self._tray is not None:
+            try:
+                self._tray.stop()
+            except Exception:
+                pass
         server = self._server
         if server is not None:
             try:
@@ -241,8 +294,21 @@ class SetupWindow:
         self._status.set("Second Brain is running")
         self.bar["value"] = 100
         self.append_log(f"Started existing FastAPI app at {url}")
+        self.append_log("Tray will not watch your screen or apps. Remember clipboard is click-only.")
         self.btn_open.pack(side="left", padx=(0, 8))
+        self.btn_tray.pack(side="left", padx=(0, 8))
         self.btn_quit.pack(side="left")
+        try:
+            from launcher.tray import TrayController
+            tray = TrayController(
+                url, on_open=self._open_browser,
+                on_show=self._show_window, on_quit=self._on_close,
+            )
+            if tray.start():
+                self._tray = tray
+                self.append_log("System tray icon ready (Open / Remember clipboard / Quit).")
+        except Exception as exc:
+            self.append_log(f"Tray unavailable ({exc}). Use Hide to tray / Quit.")
         try:
             self.root.update_idletasks()
         except Exception:
@@ -297,6 +363,7 @@ def run_gui_bootstrap(
     url: str,
     open_browser: bool = True,
     create_server: Callable | None = None,
+    start_hidden: bool = False,
 ) -> int:
     """Show the window, run checks, then keep the existing app alive."""
     if not tk_available():
@@ -341,6 +408,8 @@ def run_gui_bootstrap(
                         target=start_server, name="second-brain-server", daemon=True,
                     ).start()
                 win.succeed(url, server=server)
+                if start_hidden:
+                    win._hide_to_tray()
                 if open_browser:
                     threading.Thread(
                         target=lambda: wait_for_http(url) and webbrowser.open(url),
