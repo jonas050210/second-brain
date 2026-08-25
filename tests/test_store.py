@@ -93,6 +93,16 @@ def test_supersede_relations_of_type():
     assert py in changed and rs not in changed
 
 
+def test_update_relationship_changes_status_and_confidence():
+    a = store.create_entity("X", "concept")
+    b = store.create_entity("Y", "concept")
+    rid = store.add_relationship(a, b, "related_to", confidence=0.5)
+    assert store.update_relationship(rid, confidence=0.33, status="superseded")
+    row = store.relationship_row(rid)
+    assert abs(row["confidence"] - 0.33) < 1e-6
+    assert row["status"] == "superseded"
+
+
 def test_delete_entity_cascades():
     a = store.create_entity("X", "concept")
     b = store.create_entity("Y", "concept")

@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Second Brain — Local AI Knowledge Graph</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23070a13'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' fill='%2322d3ee'%3E%E2%97%86%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="style.css" />
   <script src="vendor/cytoscape.min.js"></script>
 </head>
@@ -34,6 +35,9 @@
         </button>
         <button class="nav-item" data-view="graph">
           <span class="nav-ico">◉</span> Knowledge Graph
+        </button>
+        <button class="nav-item" data-view="browse">
+          <span class="nav-ico">▤</span> Entities
         </button>
         <button class="nav-item" data-view="memory">
           <span class="nav-ico">🕘</span> Memory
@@ -176,6 +180,31 @@
         </div>
       </section>
 
+      <!-- ============ ENTITIES ============ -->
+      <section class="view" id="view-browse">
+        <header class="view-head">
+          <div>
+            <h1>Entities</h1>
+            <p class="view-sub">Browse the real SQLite graph — nothing fabricated.</p>
+          </div>
+        </header>
+        <div class="filter-bar">
+          <input id="browse-q" class="input" type="text" placeholder="Filter by name…" />
+          <select id="browse-type" class="input">
+            <option value="">All types</option>
+          </select>
+          <label class="toggle small">
+            <input type="checkbox" id="browse-pinned" />
+            <span>Pinned</span>
+          </label>
+          <label class="toggle small">
+            <input type="checkbox" id="browse-important" />
+            <span>Important</span>
+          </label>
+        </div>
+        <div id="browse-list" class="browse-list"></div>
+      </section>
+
       <!-- ============ MEMORY ============ -->
       <section class="view" id="view-memory">
         <header class="view-head">
@@ -302,6 +331,11 @@
         </div>
 
         <div class="panel">
+          <div class="panel-head"><h2>Privacy</h2></div>
+          <div class="panel-body" id="privacy-info"></div>
+        </div>
+
+        <div class="panel">
           <div class="panel-head"><h2>Ollama</h2></div>
           <div class="panel-body" id="ollama-info"></div>
         </div>
@@ -356,6 +390,7 @@
           <div class="panel-body form">
             <button class="btn-primary" id="backup-now">Create backup</button>
             <p class="hint" id="backup-status"></p>
+            <div id="backup-list"></div>
           </div>
         </div>
       </section>
@@ -367,6 +402,13 @@
   <aside class="entity-panel" id="entity-panel">
     <div class="entity-inner" id="entity-inner"></div>
   </aside>
+
+  <!-- Command palette -->
+  <div class="overlay" id="palette-overlay"></div>
+  <div class="palette" id="palette" hidden>
+    <input id="palette-input" class="input input-lg" type="text" placeholder="Jump to a view or entity…  Ctrl+K" />
+    <div id="palette-results" class="palette-results"></div>
+  </div>
 
   <!-- Toast -->
   <div class="toast" id="toast"></div>

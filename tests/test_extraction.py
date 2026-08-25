@@ -133,6 +133,29 @@ def test_multiword_concepts_not_trimmed():
     assert types.get("Game Engine") == "project"
 
 
+def test_list_learning_extracts_each_item():
+    r = _run("I am learning Python, Rust, and Go")
+    names = {e["name"] for e in r["entities"]}
+    assert {"Python", "Rust", "Go"} <= names
+    rels = [x["relation"] for x in r["relationships"]]
+    assert rels.count("learning") >= 3
+
+
+def test_work_on_creates_project():
+    r = _run("I am working on Second Brain")
+    names = {e["name"] for e in r["entities"]}
+    assert "Second Brain" in names
+    assert any(x["relation"] == "works_on" for x in r["relationships"])
+
+
+def test_skill_extraction():
+    r = _run("I'm good at public speaking")
+    names = {e["name"] for e in r["entities"]}
+    assert "Public Speaking" in names
+    types = {e["name"]: e["type"] for e in r["entities"]}
+    assert types.get("Public Speaking") == "skill"
+
+
 def test_confidence_threshold_respected(no_ollama, monkeypatch):
     monkeypatch.setattr(db, "get_setting_float",
                         lambda k, d: 0.99 if k == "confidence_threshold" else d)

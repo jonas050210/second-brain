@@ -11,20 +11,42 @@ from typing import List, Optional
 
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+MAX_IMPORT_BYTES = 8 * 1024 * 1024
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "connect-src 'self'; object-src 'none'; base-uri 'self'; "
+        "frame-ancestors 'self'"
+    ),
+}
+
 from . import backup, commands, config, db, export, extract, ollama, search, store, summarize
 from . import graph as graph_engine
 
-app = FastAPI(title="Second Brain", version="2.0.0")
+app = FastAPI(title="Second Brain", version="2.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for key, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(key, value)
+    return response
 
 db.init_db()
 store.ensure_user_entity()
@@ -764,6 +786,8 @@ def do_import(body: ImportIn):
         raise HTTPException(400, "mode must be 'merge' or 'replace'")
     if body.mode == "replace" and not body.confirm:
         raise HTTPException(400, "replace requires confirm=true")
+    if len((body.data or "").encode("utf-8")) > MAX_IMPORT_BYTES:
+        raise HTTPException(400, "import payload too large (8 MB max)")
     return export.import_from_json(body.data, mode=body.mode)
 
 
@@ -779,6 +803,25 @@ def do_backup():
 @app.get("/api/backup/status")
 def backup_status():
     return backup.backup_status()
+
+
+@app.get("/api/backups")
+def backups_list():
+    return backup.list_backups()
+
+
+class RestoreIn(BaseModel):
+    name: str
+    confirm: bool = False
+
+
+@app.post("/api/backup/restore")
+def backup_restore(body: RestoreIn):
+    result = backup.restore_backup(body.name, confirm=body.confirm)
+    if not result.get("ok"):
+        err = result.get("error") or "restore failed"
+        raise HTTPException(400, err)
+    return result
 
 
 # --------------------------------------------------------------------------

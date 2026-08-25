@@ -5,15 +5,23 @@ Creates timestamped backups under data/backups/ containing:
   - a JSON export of the knowledge graph
   - a Markdown export
 
+Restore copies a named backup's brain.db over the live database after
+taking a safety snapshot. Names are constrained so a path cannot escape
+the backup directory. Two backups never share a folder.
+
 No secrets are included (this application stores none). Backups are entirely
 local. Provides listing + status of the latest backup.
 """
 import json
 import os
+import re
+import shutil
 import sqlite3
 from datetime import datetime
 
 from . import config, db, export
+
+_BACKUP_NAME = re.compile(r"^backup-\d{8}-\d{6}(?:-\d{1,6})?$")
 
 
 def backup_dir():
@@ -26,11 +34,27 @@ def _timestamp():
     return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
+def _unique_backup_dir():
+    """Never reuse or overwrite an existing backup folder."""
+    base = backup_dir()
+    ts = _timestamp()
+    candidate = os.path.join(base, f"backup-{ts}")
+    if not os.path.exists(candidate):
+        os.makedirs(candidate)
+        return candidate
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    candidate = os.path.join(base, f"backup-{ts}")
+    suffix = 1
+    while os.path.exists(candidate):
+        suffix += 1
+        candidate = os.path.join(base, f"backup-{ts}-{suffix}")
+    os.makedirs(candidate)
+    return candidate
+
+
 def create_backup():
     """Create a new backup. Returns a status dict."""
-    ts = _timestamp()
-    target_dir = os.path.join(backup_dir(), f"backup-{ts}")
-    os.makedirs(target_dir, exist_ok=True)
+    target_dir = _unique_backup_dir()
 
     # 1. SQLite online backup (safe even while the app is running).
     db_copy = os.path.join(target_dir, "brain.db")
@@ -104,5 +128,65 @@ def backup_status():
         "last_backup_dir": db.get_setting("last_backup_dir"),
         "count": len(backups),
         "latest": latest,
+        "backups": backups[:20],
         "backup_dir": backup_dir(),
+    }
+
+
+def resolve_backup_dir(name):
+    """Return the absolute backup folder if `name` is a safe local backup."""
+    if not name or not _BACKUP_NAME.fullmatch(str(name)):
+        return None
+    base = os.path.realpath(backup_dir())
+    target = os.path.realpath(os.path.join(base, name))
+    if target == base or not target.startswith(base + os.sep):
+        return None
+    if not os.path.isdir(target):
+        return None
+    return target
+
+
+def restore_backup(name, confirm=False):
+    """Replace the live database with a named backup.
+
+    Always writes a safety snapshot of the current brain first. Never
+    deletes the source backup. Requires confirm=True.
+    """
+    if not confirm:
+        return {"ok": False, "error": "confirmation required"}
+    target = resolve_backup_dir(name)
+    if not target:
+        return {"ok": False, "error": "backup not found"}
+    src_db = os.path.join(target, "brain.db")
+    if not os.path.isfile(src_db):
+        return {"ok": False, "error": "backup is missing brain.db"}
+
+    safety = create_backup()
+
+    # Checkpoint then replace the live file. Leftover WAL/SHM from the
+    # previous brain would otherwise be replayed onto the restored file
+    # and hide the recovered memories.
+    live = config.DB_PATH
+    try:
+        conn = sqlite3.connect(live)
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        pass
+
+    shutil.copy2(src_db, live)
+    for suffix in ("-wal", "-shm"):
+        extra = live + suffix
+        if os.path.isfile(extra):
+            os.remove(extra)
+
+    db.set_setting("last_restore_at", datetime.now().isoformat())
+    db.set_setting("last_restore_from", name)
+    return {
+        "ok": True,
+        "restored": name,
+        "path": target,
+        "safety_copy": safety.get("path"),
     }

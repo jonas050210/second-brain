@@ -83,3 +83,33 @@ def test_is_question():
     assert search.is_question("What projects am I working on?")
     assert search.is_question("Do I use Java?")
     assert not search.is_question("I am learning Python")
+
+
+def test_yes_no_unknown_when_relation_missing():
+    extract.extract("I am learning Python")
+    a = search.answer("Do I use Python?")
+    assert a["status"] == "unknown"
+    assert "don't have" in a["text"].lower() or "nothing" in a["text"].lower()
+
+
+def test_yes_no_known_when_fact_exists():
+    extract.extract("I use Docker")
+    a = search.answer("Do I use Docker?")
+    assert a["status"] == "known"
+    assert "Docker" in a["text"]
+
+
+def test_pinned_entity_gets_reason():
+    extract.extract("I am learning Python")
+    py = store.find_entity_by_name("Python")
+    store.update_entity(py["id"], pinned=1)
+    res = search.search("Python")
+    hit = next(e for e in res["entities"] if e["name"] == "Python")
+    assert "pinned" in hit["reasons"]
+
+
+def test_works_at_intent():
+    extract.extract("I work at Acme")
+    assert search.detect_intent("Where do I work at?") == "organization"
+    facts = search.intent_facts("organization")
+    assert any("Acme" in f["text"] for f in facts)

@@ -152,3 +152,28 @@ def test_demo_endpoint(client):
     assert r.json()["ok"] is True
     d = client.get("/api/dashboard").json()
     assert d["entities"] > 1
+
+
+def test_relationship_patch(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    rust = [e for e in client.get("/api/entities").json() if e["name"] == "Rust"][0]
+    rels = client.get("/api/facts").json()
+    rid = next(f["id"] for f in rels if f["target_id"] == rust["id"])
+    r = client.patch(f"/api/relationships/{rid}", json={"confidence": 0.42})
+    assert r.status_code == 200
+    facts = client.get("/api/facts").json()
+    hit = next(f for f in facts if f["id"] == rid)
+    assert abs(hit["confidence"] - 0.42) < 1e-6
+
+
+def test_security_headers_present(client):
+    r = client.get("/api/health")
+    assert r.headers.get("x-content-type-options") == "nosniff"
+    assert r.headers.get("x-frame-options") == "SAMEORIGIN"
+    assert "default-src 'self'" in (r.headers.get("content-security-policy") or "")
+
+
+def test_import_rejects_oversized_payload(client):
+    huge = "x" * (8 * 1024 * 1024 + 50)
+    r = client.post("/api/import", json={"data": huge, "mode": "merge"})
+    assert r.status_code == 400

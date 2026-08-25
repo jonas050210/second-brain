@@ -58,16 +58,30 @@ let typeColors = TYPE_COLORS;
 /* ==========================================================================
    Navigation
    ========================================================================== */
-const VIEWS = ["dashboard", "chat", "graph", "memory", "search", "settings"];
+const VIEWS = ["dashboard", "chat", "graph", "browse", "memory", "search", "settings"];
 
 function showView(name) {
-  VIEWS.forEach((v) => $("#view-" + v).classList.toggle("active", v === name));
+  if (!VIEWS.includes(name)) name = "dashboard";
+  VIEWS.forEach((v) => {
+    const el = $("#view-" + v);
+    if (el) el.classList.toggle("active", v === name);
+  });
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
+  if (location.hash !== "#" + name) {
+    try { history.replaceState(null, "", "#" + name); } catch {}
+  }
   if (name === "graph") requestAnimationFrame(() => { if (cy) cy.fit(undefined, 30); });
   if (name === "dashboard") loadDashboard();
   if (name === "memory") loadMemory();
+  if (name === "browse") loadBrowse();
   if (name === "chat") scrollChat();
+  if (name === "settings") { loadSettings(); loadBackupStatus(); }
 }
+
+window.addEventListener("hashchange", () => {
+  const v = location.hash.replace(/^#/, "");
+  if (VIEWS.includes(v)) showView(v);
+});
 
 $$(".nav-item").forEach((b) =>
   b.addEventListener("click", () => showView(b.dataset.view)));
@@ -255,6 +269,7 @@ async function sendChat() {
   let superseded = [];
   let status = "";
   let sources = [];
+  let usedFallback = false;
 
   const finish = (r = {}) => {
     reply = r.reply != null ? r.reply : reply;
@@ -262,6 +277,8 @@ async function sendChat() {
     superseded = r.superseded || superseded;
     status = r.status || status;
     sources = r.sources || sources;
+    if (r.used_fallback) usedFallback = true;
+    r.used_fallback = usedFallback || r.used_fallback;
     if (r.conversation_id) currentConversationId = r.conversation_id;
     bubble.classList.remove("streaming");
     bubble.textContent = reply;
@@ -298,6 +315,13 @@ async function sendChat() {
     t.className = "msg-time";
     t.textContent = fmtTime(new Date().toISOString());
     wrap.appendChild(t);
+    if (r.used_fallback) {
+      const chip = document.createElement("span");
+      chip.className = "offline-chip";
+      chip.textContent = "offline extractor";
+      bubble.appendChild(document.createTextNode(" "));
+      bubble.appendChild(chip);
+    }
     if (remembered && remembered.length) { loadDashboard(); buildGraph(); }
     if (r.is_command || (remembered && remembered.length)) loadDashboard();
     loadConversations();
@@ -336,6 +360,7 @@ async function sendChat() {
         if (event === "memory") {
           remembered = data.remembered || [];
           superseded = data.superseded || [];
+          if (data.used_fallback) usedFallback = true;
         }
         if (event === "status") status = data.status || status;
         if (event === "sources") sources = data.sources || [];
@@ -389,7 +414,7 @@ async function loadConversations() {
     }
     list.innerHTML = convs.map((c) => `
       <div class="conv-item ${c.id === currentConversationId ? "active" : ""}" data-id="${c.id}">
-        <div class="conv-title">${esc(c.title || "(untitled)")}</div>
+        <div class="conv-title" data-id="${c.id}" title="Double-click to rename">${esc(c.title || "(untitled)")}</div>
         <div class="conv-preview">${esc(c.preview || "")}</div>
         <button class="rel-del conv-del" data-id="${c.id}" title="Delete conversation">✕</button>
       </div>`).join("");
@@ -418,6 +443,30 @@ async function loadConversations() {
       src.value = cur;
     }
   } catch {}
+}
+
+async function renameConversation(id, el) {
+  const current = el.textContent.trim();
+  el.contentEditable = "true";
+  el.focus();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  const done = async () => {
+    el.contentEditable = "false";
+    el.removeEventListener("blur", done);
+    const title = el.textContent.trim().slice(0, 80);
+    if (!title || title === current) { el.textContent = current; return; }
+    await api("/conversations/" + id, { method: "PATCH", body: JSON.stringify({ title }) });
+    loadConversations();
+  };
+  el.addEventListener("blur", done);
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); el.blur(); }
+    if (e.key === "Escape") { el.textContent = current; el.blur(); }
+  }, { once: true });
 }
 
 async function openConversation(id) {
@@ -575,6 +624,31 @@ function populateFilterDropdowns(g) {
   fill("#gf-type", types, "All types");
   fill("#gf-relation", rels, "All relations");
   fill("#sf-type", types, "Any type");
+  fill("#browse-type", types, "All types");
+}
+
+async function loadBrowse() {
+  const list = $("#browse-list");
+  if (!list) return;
+  const params = new URLSearchParams();
+  const q = $("#browse-q") && $("#browse-q").value.trim();
+  const type = $("#browse-type") && $("#browse-type").value;
+  if (q) params.set("q", q);
+  if (type) params.set("type", type);
+  if ($("#browse-pinned") && $("#browse-pinned").checked) params.set("pinned", "true");
+  if ($("#browse-important") && $("#browse-important").checked) params.set("important", "true");
+  const ents = await api("/entities?" + params.toString());
+  list.innerHTML = ents.length ? ents.map((e) => `
+    <div class="browse-row" data-id="${e.id}">
+      <span style="color:${typeColors[e.type] || "#fff"}">●</span>
+      <span class="browse-name">${esc(e.name)}</span>
+      ${badge(e.type)}
+      ${e.pinned ? '<span class="st-status st-pinned">pinned</span>' : ""}
+      ${e.important ? '<span class="st-status st-important">important</span>' : ""}
+      <span class="browse-meta"><span>${e.degree} links</span><span>${Math.round((e.confidence || 0.8) * 100)}%</span></span>
+    </div>`).join("") : `<p class="muted">No entities match.</p>`;
+  list.querySelectorAll(".browse-row").forEach((el) =>
+    el.addEventListener("click", () => openEntity(el.dataset.id)));
 }
 
 async function applyGraphFilters() {
@@ -704,6 +778,7 @@ $("#mem-clear").addEventListener("click", () => {
 const REASON_LABELS = {
   keyword: "Keyword match", semantic: "Semantic match",
   graph: "Graph relation", recent: "Recent memory",
+  pinned: "Pinned", important: "Important",
 };
 
 async function doSearch() {
@@ -1127,6 +1202,7 @@ $("#backup-now").addEventListener("click", async () => {
   $("#backup-status").textContent = r.ok
     ? `Backup created at ${r.path} (db: ${r.db}, json: ${r.export_json}, md: ${r.export_md})`
     : "Backup failed";
+  loadBackupStatus();
 });
 
 async function loadBackupStatus() {
@@ -1135,6 +1211,27 @@ async function loadBackupStatus() {
     if (s.count) {
       $("#backup-status").textContent = `Last backup: ${s.last_backup_at || "—"} · ${s.count} total · ${s.backup_dir}`;
     }
+    const box = $("#backup-list");
+    if (!box) return;
+    const items = s.backups || [];
+    box.innerHTML = items.length ? items.slice(0, 8).map((b) => `
+      <div class="browse-row" style="margin-top:8px">
+        <span class="browse-name">${esc(b.name)}</span>
+        <span class="browse-meta">${esc((b.created_at || "").slice(0, 19))}</span>
+        <button class="btn-ghost backup-restore" data-name="${esc(b.name)}">Restore</button>
+      </div>`).join("") : "";
+    box.querySelectorAll(".backup-restore").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        if (!confirm("Restore this backup? A safety snapshot of the current brain is created first.")) return;
+        try {
+          const r = await api("/backup/restore", {
+            method: "POST",
+            body: JSON.stringify({ name: btn.dataset.name, confirm: true }),
+          });
+          toast(r.ok ? "Backup restored" : "Restore failed");
+          if (r.ok) { loadDashboard(); buildGraph(); loadMemory(); loadConversations(); loadBrowse(); }
+        } catch (e) { toast(e.message); }
+      }));
   } catch {}
 }
 
@@ -1159,6 +1256,97 @@ $("#summarize-all").addEventListener("click", async () => {
 });
 
 /* ==========================================================================
+   Command palette + keyboard
+   ========================================================================== */
+let paletteIndex = 0;
+let paletteItems = [];
+
+function closePalette() {
+  const pal = $("#palette");
+  const ov = $("#palette-overlay");
+  if (pal) pal.hidden = true;
+  if (ov) ov.classList.remove("show");
+}
+
+function openPalette() {
+  const pal = $("#palette");
+  const ov = $("#palette-overlay");
+  const input = $("#palette-input");
+  if (!pal || !input) return;
+  pal.hidden = false;
+  if (ov) ov.classList.add("show");
+  input.value = "";
+  input.focus();
+  renderPalette("");
+}
+
+async function renderPalette(q) {
+  const box = $("#palette-results");
+  if (!box) return;
+  const query = (q || "").trim().toLowerCase();
+  const views = VIEWS.map((v) => ({ kind: "view", id: v, label: v[0].toUpperCase() + v.slice(1) }));
+  let ents = [];
+  try { ents = await api("/entities" + (query ? ("?q=" + encodeURIComponent(query)) : "")); } catch {}
+  const viewHits = views.filter((v) => !query || v.label.toLowerCase().includes(query));
+  const entHits = ents.slice(0, 12).map((e) => ({ kind: "entity", id: e.id, label: e.name, type: e.type }));
+  paletteItems = viewHits.concat(entHits);
+  paletteIndex = 0;
+  box.innerHTML = paletteItems.map((it, i) => `
+    <div class="palette-item ${i === 0 ? "active" : ""}" data-i="${i}">
+      <span class="palette-kicker">${it.kind}</span>
+      <span>${esc(it.label)}</span>
+      ${it.type ? badge(it.type) : ""}
+    </div>`).join("") || `<p class="muted">Nothing matches.</p>`;
+  box.querySelectorAll(".palette-item").forEach((el) =>
+    el.addEventListener("click", () => choosePalette(Number(el.dataset.i))));
+}
+
+function choosePalette(i) {
+  const it = paletteItems[i];
+  closePalette();
+  if (!it) return;
+  if (it.kind === "view") showView(it.id);
+  else openEntity(it.id);
+}
+
+if ($("#palette-input")) {
+  $("#palette-input").addEventListener("input", (e) => renderPalette(e.target.value));
+  $("#palette-input").addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); paletteIndex = Math.min(paletteItems.length - 1, paletteIndex + 1); }
+    if (e.key === "ArrowUp") { e.preventDefault(); paletteIndex = Math.max(0, paletteIndex - 1); }
+    $$("#palette-results .palette-item").forEach((el, i) => el.classList.toggle("active", i === paletteIndex));
+    if (e.key === "Enter") { e.preventDefault(); choosePalette(paletteIndex); }
+    if (e.key === "Escape") closePalette();
+  });
+}
+if ($("#palette-overlay")) $("#palette-overlay").addEventListener("click", closePalette);
+if ($("#browse-q")) $("#browse-q").addEventListener("input", loadBrowse);
+if ($("#browse-type")) $("#browse-type").addEventListener("change", loadBrowse);
+if ($("#browse-pinned")) $("#browse-pinned").addEventListener("change", loadBrowse);
+if ($("#browse-important")) $("#browse-important").addEventListener("change", loadBrowse);
+
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName) || "";
+  const typing = tag === "INPUT" || tag === "TEXTAREA" || (e.target && e.target.isContentEditable);
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    const pal = $("#palette");
+    if (pal && !pal.hidden) closePalette();
+    else openPalette();
+    return;
+  }
+  if (e.key === "Escape") {
+    closePalette();
+    closeEntity();
+    return;
+  }
+  if (typing) return;
+  const map = { "1": "dashboard", "2": "chat", "3": "graph", "4": "browse", "5": "memory", "6": "search", "7": "settings" };
+  if (map[e.key]) showView(map[e.key]);
+  if (e.key === "/") { e.preventDefault(); showView("search"); const el = $("#search-input"); if (el) el.focus(); }
+});
+
+/* ==========================================================================
    Boot
    ========================================================================== */
 async function boot() {
@@ -1170,7 +1358,8 @@ async function boot() {
   loadBackupStatus();
   loadSummarizeCandidates();
   loadConversations();
-  showView("dashboard");
+  const initial = location.hash.replace(/^#/, "");
+  showView(VIEWS.includes(initial) ? initial : "dashboard");
   setInterval(refreshStatus, 15000);
 }
 boot();

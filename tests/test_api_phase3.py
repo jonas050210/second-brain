@@ -85,6 +85,23 @@ def test_backup_endpoint(client):
     assert r.json()["ok"] is True
     s = client.get("/api/backup/status").json()
     assert s["count"] >= 1
+    listed = client.get("/api/backups").json()
+    assert isinstance(listed, list) and listed
+
+
+def test_backup_restore_endpoint(client):
+    client.post("/api/chat", json={"content": "I am learning Python"})
+    created = client.post("/api/backup").json()
+    name = created["path"].rstrip("/").split("/")[-1]
+    client.post("/api/reset", json={"confirm": True})
+    assert not any(e["name"] == "Python" for e in client.get("/api/entities").json())
+    bad = client.post("/api/backup/restore", json={"name": name, "confirm": False})
+    assert bad.status_code == 400
+    traversal = client.post("/api/backup/restore", json={"name": "../etc", "confirm": True})
+    assert traversal.status_code == 400
+    ok = client.post("/api/backup/restore", json={"name": name, "confirm": True})
+    assert ok.status_code == 200
+    assert any(e["name"] == "Python" for e in client.get("/api/entities").json())
 
 
 def test_summarize_candidates_endpoint(client):

@@ -352,6 +352,32 @@ def supersede_relations_of_type(source_id, relation, except_target_id=None, targ
     return changed
 
 
+def update_relationship(rid, **fields):
+    """Update relation label, confidence, or status. Never deletes the row."""
+    allowed = {"relation", "confidence", "status"}
+    sets, params = [], []
+    for k, v in fields.items():
+        if k not in allowed:
+            continue
+        if k == "relation":
+            rel, _swap = normalize_relation(v)
+            v = rel
+        if k == "confidence":
+            try:
+                v = max(0.0, min(1.0, float(v)))
+            except (TypeError, ValueError):
+                continue
+        if k == "status" and v not in ("active", "superseded"):
+            continue
+        sets.append(f"{k}=?")
+        params.append(v)
+    if not sets:
+        return False
+    params.append(rid)
+    db.execute(f"UPDATE relationships SET {', '.join(sets)} WHERE id=?", params)
+    return True
+
+
 def delete_relationship(rid):
     db.execute("DELETE FROM relationships WHERE id=?", (rid,))
 

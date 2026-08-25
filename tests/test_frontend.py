@@ -112,6 +112,18 @@ def test_search_works(page):
     assert "Rust" in page.locator("#search-answer").inner_text()
 
 
+def test_entity_browser_and_palette_markup():
+    html = open(os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html"), encoding="utf-8").read()
+    js = open(os.path.join(os.path.dirname(__file__), "..", "frontend", "app.js"), encoding="utf-8").read()
+    assert 'id="view-browse"' in html
+    assert 'id="palette"' in html
+    assert 'id="privacy-info"' in html
+    assert 'id="backup-list"' in html
+    assert "function loadBrowse" in js
+    assert "function openPalette" in js
+    assert "function restore" not in js or "/backup/restore" in js
+
+
 def test_settings_load(page):
     page.goto(BASE_URL + "/")
     _wait_boot(page)

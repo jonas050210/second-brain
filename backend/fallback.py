@@ -116,6 +116,36 @@ def clean_phrase(p):
     return " ".join(words)
 
 
+_ITEM_VERBS = {
+    "want", "wants", "wanted", "is", "are", "am", "was", "were",
+    "build", "create", "make", "have", "has", "had", "will", "going",
+}
+
+
+def looks_like_item(phrase):
+    """True if a phrase is a short concept name, not a clause."""
+    phrase = clean_phrase(phrase or "")
+    if not phrase or len(phrase) < 2:
+        return False
+    words = phrase.lower().split()
+    if len(words) > 4:
+        return False
+    if any(w in _ITEM_VERBS for w in words):
+        return False
+    return True
+
+
+def split_item_list(rest):
+    """Split 'Python, Rust, and Go' into items. Ignores clause-like fragments."""
+    rest = re.split(r"[.!?](?=\s|$)", rest or "")[0]
+    rest = re.split(r"\s+(?:because|since|so that)\b", rest, maxsplit=1)[0]
+    if "," not in rest and not re.search(r"\s+(?:and|or)\s+", rest):
+        item = clean_phrase(rest)
+        return [item] if looks_like_item(item) else []
+    parts = [clean_phrase(p) for p in re.split(r",\s*|\s+and\s+|\s+or\s+", rest)]
+    return [p for p in parts if looks_like_item(p)]
+
+
 # --------------------------------------------------------------------------
 # Fallback extractor
 # --------------------------------------------------------------------------
@@ -253,6 +283,51 @@ def extract_with_rules(text):
             else:
                 e = add(item, "technology" if key in TECH else "concept")
                 add_rel("User", e, "wants")
+
+    # Comma / "and" lists: "I'm learning Python, Rust, and Go"
+    def _add_listed(items, etype_fn, relation):
+        if len(items) < 2:
+            return
+        for item in items:
+            key = canonical_name(item).lower()
+            if not key or key in ("i", "me"):
+                continue
+            e = add(item, etype_fn(key))
+            add_rel("User", e, relation)
+
+    for m in re.finditer(r"(?:learning|learn|studying|picking_up)\s+(.+?)(?:[.!?;]|$)", t):
+        _add_listed(split_item_list(m.group(1)),
+                    lambda k: "technology" if k in TECH else "topic", "learning")
+    for m in re.finditer(r"(?:interested_in|curious_about|fascinated by|passionate_about|really into)\s+(.+?)(?:[.!?;]|$)", t):
+        _add_listed(split_item_list(m.group(1)),
+                    lambda k: "technology" if k in TECH else "interest", "interested_in")
+    for m in re.finditer(r"\b(?:i|we)\s+(?:use|using|am using)\s+(.+?)(?:[.!?;]|$)", t):
+        _add_listed(split_item_list(m.group(1)),
+                    lambda k: "technology" if k in TECH else "concept", "uses")
+
+    # "I work on X" / "I'm working on X"
+    for m in re.finditer(
+        r"\b(?:i|we)(?:\s+am|\s+are)?\s+work_on\s+(?:the\s+|a\s+|an\s+|my\s+)?"
+        r"([a-z0-9 .+#/'-]{1,32}?)(?=\s+(?:and|or|for|to|because|with|using|,)|\.|$)",
+        t,
+    ):
+        item = clean_phrase(m.group(1))
+        key = canonical_name(item).lower()
+        if key and key not in ("i", "me"):
+            e = add(item, "technology" if key in TECH else "project")
+            add_rel("User", e, "works_on")
+
+    # Skills: "I'm good at public speaking"
+    for m in re.finditer(
+        r"\b(?:i(?:'m| am)?|we(?:'re| are)?)\s+(?:good at|skilled at|skilled in|great at)\s+"
+        r"([a-z0-9 .+#/'-]{1,32}?)(?=\s+(?:and|or|for|to|because|,)|\.|$)",
+        t,
+    ):
+        item = clean_phrase(m.group(1))
+        key = canonical_name(item).lower()
+        if key and key not in ("i", "me"):
+            e = add(item, "skill")
+            add_rel("User", e, "related_to")
 
     # ---- 4. people ------------------------------------------------------
     last_person = None

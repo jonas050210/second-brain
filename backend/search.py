@@ -22,6 +22,7 @@ INTENT_KEYWORDS = {
     "goal": ["goal", "goals", "plan", "want", "objective", "aiming"],
     "interest": ["interest", "interested", "hobbies", "like", "enjoy", "prefer", "preference"],
     "location": ["live", "located", "based"],
+    "organization": ["work at", "work for", "company", "employer", "organization"],
 }
 
 STOPWORDS = {
@@ -178,6 +179,15 @@ def intent_facts(intent):
         out = [{"text": f'{r["sname"]} lives_in {r["tname"]}', "confidence": r["c"],
                 "rid": r["rid"], "source_message_id": r["smid"],
                 "entities": [r["sid"], r["tid"]]} for r in rels]
+    elif intent == "organization":
+        rels = db.query(
+            "SELECT r.id rid, r.source_message_id smid, s.name sname, t.name tname, r.confidence c, "
+            "r.source_id sid, r.target_id tid FROM relationships r "
+            "JOIN entities s ON s.id=r.source_id JOIN entities t ON t.id=r.target_id "
+            "WHERE r.relation='works_at' AND r.status='active'")
+        out = [{"text": f'{r["sname"]} works_at {r["tname"]}', "confidence": r["c"],
+                "rid": r["rid"], "source_message_id": r["smid"],
+                "entities": [r["sid"], r["tid"]]} for r in rels]
     return out
 
 
@@ -256,10 +266,16 @@ def search(query_text, filters=None, multi_hop_depth=3):
         if deg >= 2:
             rec["score"] += min(deg, 10) * 0.05
             rec["reasons"].append("graph")
-        # recency
+        # recency / flags
         rec["score"] += _recency_boost(rec["entity"])
         if _is_recent(rec["entity"]):
             rec["reasons"].append("recent")
+        if rec["entity"].get("pinned"):
+            rec["score"] += 0.8
+            rec["reasons"].append("pinned")
+        if rec["entity"].get("important"):
+            rec["score"] += 0.5
+            rec["reasons"].append("important")
         # status penalty
         if rec["entity"].get("status") == "superseded":
             rec["score"] -= 5.0
@@ -352,8 +368,70 @@ def _passes_filters(row, filters):
 # Grounded answer (KNOWN / UNKNOWN / UNCERTAIN)
 # --------------------------------------------------------------------------
 
+_YN_FACT = re.compile(
+    r"^(?:do i|did i|am i|have i)\s+"
+    r"(using|use|learning|learn|preferring|prefer|living in|live in|"
+    r"working at|work at|working on|work on|know)\s+(.+?)\??$",
+    re.I,
+)
+
+_YN_REL = {
+    "use": "uses", "using": "uses",
+    "learn": "learning", "learning": "learning",
+    "prefer": "prefers", "preferring": "prefers",
+    "live in": "lives_in", "living in": "lives_in",
+    "work at": "works_at", "working at": "works_at",
+    "work on": "works_on", "working on": "works_on",
+    "know": "knows",
+}
+
+
+def _direct_fact_answer(query_text):
+    """Yes/no questions about a specific stored fact. Never invents."""
+    m = _YN_FACT.match((query_text or "").strip())
+    if not m:
+        return None
+    rel = _YN_REL.get(m.group(1).lower())
+    name = (m.group(2) or "").strip().strip("?. ")
+    if not rel or not name:
+        return None
+    target = store.find_entity_by_name(name)
+    if not target:
+        hits = keyword_search(name, limit=3)
+        if hits and hits[0][0] >= 5:
+            target = hits[0][1]
+    uid = store.ensure_user_entity()
+    unknown = {
+        "text": (
+            f"I don't have a memory indicating that. Nothing in your brain "
+            f"matches “{query_text}” yet."
+        ),
+        "status": "unknown",
+        "sources": [],
+    }
+    if not target:
+        return unknown
+    row = db.query_one(
+        "SELECT * FROM relationships WHERE source_id=? AND target_id=? "
+        "AND relation=? AND status='active'",
+        (uid, target["id"], rel),
+    )
+    if not row:
+        return unknown
+    fact = {"text": f'User {rel} {target["name"]}', "confidence": row["confidence"],
+            "entities": [uid, target["id"]], "source_message_id": row.get("source_message_id")}
+    return {
+        "text": f'Yes — User {rel} {target["name"]}. (from stored memory)',
+        "status": "known",
+        "sources": sources_for_facts([fact]),
+    }
+
+
 def answer(query_text, model=None, context=None, filters=None):
     model = model or config.DEFAULT_LLM_MODEL
+    direct = _direct_fact_answer(query_text)
+    if direct is not None:
+        return direct
     res = search(query_text, filters=filters)
     return compose_answer(query_text, res, model, context)
 
@@ -448,6 +526,12 @@ def _fallback_answer(query_text, res, status):
     elif intent == "goal":
         goals = [f["text"] for f in facts if " wants " in f["text"]]
         text = ("; ".join(goals) + "." if goals else f"Here's what I have: {', '.join(names)}.")
+    elif intent == "organization":
+        jobs = [f["text"] for f in facts if " works_at " in f["text"]]
+        text = ("; ".join(jobs) + "." if jobs else f"Here's what I have: {', '.join(names)}.")
+    elif intent == "location":
+        locs = [f["text"] for f in facts if " lives_in " in f["text"]]
+        text = ("; ".join(locs) + "." if locs else f"Here's what I have: {', '.join(names)}.")
     else:
         detail = ". ".join(f["text"] for f in facts[:5])
         text = f"I found: {', '.join(names)}. " + (detail + "." if detail else "")

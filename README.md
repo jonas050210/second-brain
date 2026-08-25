@@ -191,6 +191,7 @@ edit, delete, merge. No fabricated nodes.
 - Local backups under `data/backups/` (SQLite + JSON + MD)
 - Secrets are not exported
 - Reset requires confirmation
+- Restore a named local backup (creates a safety snapshot first)
 
 ---
 
