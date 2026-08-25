@@ -331,8 +331,11 @@ def extract_with_rules(text):
 
     # ---- 4. people ------------------------------------------------------
     last_person = None
-    for m in re.finditer(r"(?:my friend|my colleague|my partner|i met|i know|met someone called)\s+([a-z][a-z0-9 .\-]{1,24}?)(?=[,.;!]|\s+(?:who|and|,|\.|$))", t):
-        p = add(m.group(1).strip(), "person")
+    for m in re.finditer(r"(?:my friend|my colleague|my coworker|my partner|i met|i know|met someone called)\s+([a-z][a-z0-9 .\-]{1,24}?)(?=[,.;!]|\s+(?:who|and|,|\.|$))", t):
+        raw = m.group(1).strip()
+        if canonical_name(raw).lower() in TECH:
+            continue
+        p = add(raw, "person")
         if p:
             last_person = p
         add_rel("User", p, "knows")

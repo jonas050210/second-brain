@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -374,6 +374,8 @@ def finalize_turn(turn, reply):
         out["is_answer"] = True
         out["status"] = turn.get("status") or ""
         out["sources"] = turn.get("sources") or []
+    if turn["kind"] == "extract":
+        store.record_last_extract(turn)
     if turn["kind"] in ("extract", "command") and (
         out.get("remembered") or out.get("updates") or out.get("is_command")
     ):
@@ -423,8 +425,14 @@ def get_message(mid: int):
 
 
 @app.get("/api/conversations")
-def conversations(q: str = None):
-    return store.conversation_summaries(query=q)
+def conversations(q: str = None, archived: str = "0"):
+    flag = False
+    raw = (archived or "0").strip().lower()
+    if raw in ("1", "true", "yes"):
+        flag = True
+    elif raw in ("all", "*"):
+        flag = None
+    return store.conversation_summaries(query=q, archived=flag)
 
 
 @app.post("/api/conversations/new")
@@ -435,6 +443,8 @@ def conversations_new():
 
 class ConversationPatch(BaseModel):
     title: Optional[str] = None
+    pinned: Optional[bool] = None
+    archived: Optional[bool] = None
 
 
 @app.patch("/api/conversations/{cid}")
@@ -443,7 +453,45 @@ def conversation_update(cid: int, body: ConversationPatch):
         raise HTTPException(404, "conversation not found")
     if body.title is not None:
         store.touch_conversation(cid, title=body.title.strip()[:80])
+    fields, params = [], []
+    if body.pinned is not None:
+        fields.append("pinned=?")
+        params.append(1 if body.pinned else 0)
+    if body.archived is not None:
+        fields.append("archived=?")
+        params.append(1 if body.archived else 0)
+    if fields:
+        fields.append("updated_at=?")
+        params.append(db.utcnow())
+        params.append(cid)
+        db.execute(f"UPDATE conversations SET {', '.join(fields)} WHERE id=?", params)
     return {"ok": True, "conversation": store.conversation_row(cid)}
+
+
+@app.get("/api/conversations/{cid}/export")
+def conversation_export(cid: int):
+    conv = store.conversation_row(cid)
+    if not conv:
+        raise HTTPException(404, "conversation not found")
+    lines = [
+        f"# {conv.get('title') or 'Conversation'}",
+        "",
+        f"Exported: {db.utcnow()}",
+        "",
+    ]
+    for m in store.conversation_messages(cid):
+        role = m.get("role") or "user"
+        when = (m.get("created_at") or "")[:19]
+        lines.append(f"**{role}** ({when})")
+        lines.append("")
+        lines.append(m.get("content") or "")
+        lines.append("")
+    name = f"conversation-{cid}.md"
+    return Response(
+        content="\n".join(lines),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
 
 
 @app.delete("/api/conversations/{cid}")
@@ -527,9 +575,35 @@ def _entity_degree_map():
     return deg
 
 
+@app.get("/api/entities/duplicates")
+def entity_duplicates(limit: int = 20):
+    """Near-duplicate pairs by embedding. Never auto-merges."""
+    try:
+        limit = max(1, min(int(limit or 20), 50))
+    except (TypeError, ValueError):
+        limit = 20
+    seen, pairs = set(), []
+    for e in store.all_entities():
+        if (e.get("norm_name") or "") == "user":
+            continue
+        for hit in store.similar_entities(e["id"], limit=3, min_score=0.88):
+            key = tuple(sorted((e["id"], hit["id"])))
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append({
+                "a": {"id": e["id"], "name": e["name"], "type": e["type"]},
+                "b": {"id": hit["id"], "name": hit["name"], "type": hit["type"]},
+                "score": hit["score"],
+            })
+            if len(pairs) >= limit:
+                return pairs
+    return pairs
+
+
 @app.get("/api/entities")
 def entities(q: str = None, type: str = None, pinned: bool = None, important: bool = None,
-             sort: str = "name"):
+             sort: str = "name", orphans: bool = False):
     rows = store.all_entities()
     if type:
         rows = [r for r in rows if r["type"] == type]
@@ -547,6 +621,9 @@ def entities(q: str = None, type: str = None, pinned: bool = None, important: bo
             "important": r.get("important", 0), "status": r.get("status", "active"),
             "created_at": r["created_at"], "updated_at": r["updated_at"],
             "source_message_id": r.get("source_message_id")} for r in rows]
+    if orphans:
+        out = [e for e in out if int(e.get("degree") or 0) == 0
+               and (e.get("name") or "").lower() != "user"]
     key = (sort or "name").lower()
     if key == "degree":
         out.sort(key=lambda e: (-int(e.get("degree") or 0), (e.get("name") or "").lower()))
@@ -659,6 +736,7 @@ class EntityPatch(BaseModel):
     status: Optional[str] = None
     pinned: Optional[bool] = None
     important: Optional[bool] = None
+    aliases: Optional[List[str]] = None
 
 
 @app.patch("/api/entities/{eid}")
@@ -681,6 +759,16 @@ def entity_update(eid: int, body: EntityPatch):
         fields["pinned"] = 1 if body.pinned else 0
     if body.important is not None:
         fields["important"] = 1 if body.important else 0
+    if body.aliases is not None:
+        cleaned, seen = [], set()
+        for raw in body.aliases:
+            name = str(raw or "").strip()[:80]
+            key = store.normalize_name(name)
+            if not name or key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(name)
+        fields["aliases"] = cleaned[:20]
     store.update_entity(eid, **fields)
     return {"ok": True}
 
@@ -797,7 +885,7 @@ def list_facts(active_only: bool = True, status: str = None, entity_id: int = No
 @app.get("/api/memories")
 def memories(limit: int = 200, entity_id: int = None, kind: str = None,
              type: str = None, conversation_id: int = None, date: str = None,
-             entity: str = None):
+             entity: str = None, q: str = None):
     rows = store.recent_memories(limit if limit <= 2000 else 2000)
     resolved_eid = entity_id
     if resolved_eid is None and entity:
@@ -816,6 +904,8 @@ def memories(limit: int = 200, entity_id: int = None, kind: str = None,
         if resolved_eid is not None and resolved_eid not in json.loads(m["entity_ids"] or "[]"):
             continue
         if kind and m["kind"] != kind:
+            continue
+        if q and q.lower() not in (m.get("text") or "").lower():
             continue
         if date and not m["created_at"].startswith(date):
             continue
@@ -960,6 +1050,33 @@ def import_notes(body: NotesIn):
         raise HTTPException(400, result.get("error") or "import failed")
     _safe_auto_backup()
     return result
+
+
+class FileIn(BaseModel):
+    filename: str
+    text: str
+
+
+@app.post("/api/import/file")
+def import_file(body: FileIn):
+    """User-initiated text ingest. JSON uses merge import; anything else is notes."""
+    if len((body.text or "").encode("utf-8")) > MAX_IMPORT_BYTES:
+        raise HTTPException(400, "file payload too large (8 MB max)")
+    name = (body.filename or "").lower().strip()
+    if name.endswith(".json"):
+        result = export.import_from_json(body.text, mode="merge")
+    else:
+        result = export.import_notes(body.text)
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error") or "import failed")
+    _safe_auto_backup()
+    return result
+
+
+@app.post("/api/undo")
+def undo_last():
+    """Supersede the last extract. Never deletes the database or history."""
+    return store.undo_last_extract()
 
 
 # --------------------------------------------------------------------------
@@ -1205,6 +1322,19 @@ def chat_stream(body: ChatIn):
 # --------------------------------------------------------------------------
 # Static frontend (served by the same local server — no build step needed)
 # --------------------------------------------------------------------------
+
+@app.get("/favicon.ico")
+@app.get("/favicon.png")
+def favicon():
+    from launcher.icons import icon_ico, icon_png
+    png = icon_png()
+    if png is not None:
+        return FileResponse(str(png), media_type="image/png")
+    ico = icon_ico()
+    if ico is not None:
+        return FileResponse(str(ico), media_type="image/x-icon")
+    raise HTTPException(404, "icon not found")
+
 
 if os.path.isdir(config.FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=config.FRONTEND_DIR, html=True), name="frontend")

@@ -494,6 +494,14 @@ button { font-family: var(--font); }
   border: 1px solid transparent; position: relative;
 }
 .conv-item .conv-del { position: absolute; top: 6px; right: 6px; }
+.conv-item .conv-export { position: absolute; top: 6px; right: 24px; }
+.conv-item .conv-arch { position: absolute; top: 6px; right: 42px; font-size: 10px; }
+.conv-item .conv-pin { position: absolute; top: 6px; right: 78px; }
+.conv-item.archived { opacity: 0.55; }
+.conv-item.pinned .conv-title { color: var(--c-concept); }
+.alias-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.alias-edit .input { max-width: 140px; padding: 6px 8px; }
+#conv-archived { margin: 0 0 8px; }
 .conv-item:hover { background: var(--surface-2); }
 .conv-item.active { background: rgba(34,211,238,0.1); border-color: rgba(34,211,238,0.3); }
 .conv-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

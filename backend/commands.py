@@ -46,6 +46,8 @@ def is_command(text):
         return True
     if re.match(r"^(?:change|update|rename)\s+.+\s+to\s+\S", t):
         return True
+    if t in ("undo last", "undo that", "scratch that", "that was wrong"):
+        return True
     if t.startswith("set confidence"):
         return True
     if re.match(r"^(?:delete|remove)\s+(?:the\s+)?memory\b", t):
@@ -118,6 +120,11 @@ def handle_command(text):
     and (optionally) the list of affected entity ids, or None if not a command."""
     t = text.strip()
     tl = t.lower().rstrip(".,!?;: ")
+
+    if tl in ("undo last", "undo that", "scratch that", "that was wrong"):
+        r = store.undo_last_extract()
+        return {"reply": r.get("reply") or r.get("error") or "Done.",
+                "ok": bool(r.get("ok")), "undone": r.get("undone", 0)}
 
     # ---- remember [that] X ----------------------------------------------
     m = re.match(r"(?:please\s+)?remember(?:\s+that)?\s+(.+)$", t.strip(), re.I)

@@ -125,6 +125,11 @@ def test_entity_browser_and_palette_markup():
     assert 'id="gf-around-me"' in html
     assert 'id="graph-to-me"' in html
     assert 'id="browse-sort"' in html
+    assert 'id="chat-undo"' in html
+    assert 'id="import-file"' in html
+    assert 'id="browse-orphans"' in html
+    assert 'id="mem-q"' in html
+    assert 'id="conv-archived"' in html
     assert "function loadBrowse" in js
     assert "function formatImportReport" in js
     assert "/graph?focus=" in js

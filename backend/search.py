@@ -663,6 +663,19 @@ _WHEN_Q = re.compile(
     r"|living (?:in )?|meet(?:ing)? )?(.+?)\??$",
     re.I,
 )
+_OVERVIEW_Q = re.compile(
+    r"^(?:what do i know|what do you know(?: about me)?|"
+    r"summarize (?:my )?(?:brain|memory|memories)|"
+    r"give me an overview|what(?:'s| is) in my (?:brain|memory))\??$",
+    re.I,
+)
+_COUNT_Q = re.compile(
+    r"^(?:how many|what(?:'s| is) the number of)\s+"
+    r"(projects?|people|persons?|friends|technologies|entities|"
+    r"memories|conversations|facts)"
+    r"(?:\s+do i have|\s+have i|\s+are there|\s+do i store)?\??$",
+    re.I,
+)
 
 
 def _used_by_answer(query_text):
@@ -787,6 +800,67 @@ def _changed_answer(query_text):
     }
 
 
+
+def _overview_answer(query_text):
+    """Compact grounded recap of active facts. Never invents."""
+    if not _OVERVIEW_Q.match((query_text or "").strip()):
+        return None
+    facts, seen = [], set()
+    for intent in ("learning", "project", "technology", "interest", "goal",
+                   "person", "location", "organization"):
+        for f in intent_facts(intent):
+            key = f.get("text")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            facts.append(f)
+    if not facts:
+        return _unknown(query_text)
+    return {
+        "text": "; ".join(f["text"] for f in facts[:12]) + ". (from stored memory)",
+        "status": "known",
+        "sources": sources_for_facts(facts),
+        "final": True,
+    }
+
+
+def _count_answer(query_text):
+    """Count stored things. Reads SQLite only."""
+    m = _COUNT_Q.match((query_text or "").strip())
+    if not m:
+        return None
+    kind = (m.group(1) or "").lower()
+    ents = store.all_entities()
+    if kind.startswith("project"):
+        n = sum(1 for e in ents if e["type"] == "project" and e.get("status", "active") == "active")
+        label = "project" if n == 1 else "projects"
+    elif kind.startswith("technolog"):
+        n = sum(1 for e in ents if e["type"] == "technology" and e.get("status", "active") == "active")
+        label = "technology" if n == 1 else "technologies"
+    elif kind in ("people", "persons", "person", "friends"):
+        n = sum(1 for e in ents if e["type"] == "person" and e.get("norm_name") != "user"
+                and e.get("status", "active") == "active")
+        label = "person" if n == 1 else "people"
+    elif kind.startswith("entit"):
+        n = len(ents)
+        label = "entity" if n == 1 else "entities"
+    elif kind.startswith("memor"):
+        n = db.query("SELECT COUNT(*) c FROM memories")[0]["c"]
+        label = "memory" if n == 1 else "memories"
+    elif kind.startswith("conversation"):
+        n = len(store.all_conversations())
+        label = "conversation" if n == 1 else "conversations"
+    else:
+        n = len(store.all_relationships(active_only=True))
+        label = "fact" if n == 1 else "facts"
+    return {
+        "text": f"You have {n} stored {label}. (from stored memory)",
+        "status": "known",
+        "sources": [],
+        "final": True,
+    }
+
+
 def retrieve_answer(query_text, filters=None):
     """Deterministic retrieval. `final` answers skip the LLM composer."""
     direct = _direct_fact_answer(query_text)
@@ -812,6 +886,12 @@ def retrieve_answer(query_text, filters=None):
     when = _when_answer(query_text)
     if when is not None:
         return when
+    overview = _overview_answer(query_text)
+    if overview is not None:
+        return overview
+    counted = _count_answer(query_text)
+    if counted is not None:
+        return counted
     about = _about_answer(query_text)
     if about is not None:
         out = dict(about)

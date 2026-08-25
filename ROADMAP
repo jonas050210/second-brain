@@ -47,11 +47,18 @@ The database is the source of truth.
 - Near-duplicate suggestions on the entity panel
 - “Who uses X?” and “When did I start …?” read stored dates/facts
 - Non-stream RAG also drops ungrounded Ollama replies
+- Undo last extract (supersede, never delete history)
+- Conversation pin / archive / markdown export
+- User-picked local .txt/.md/.json ingest
+- Entity alias editor; unlinked-entity filter; duplicate finder
+- “What do I know?” and “How many …?” grounded recaps
+- Memory text search; real favicon from the EXE icon
 
 ## Next (optional)
 
-- Explicit user-initiated binary file ingest
+- Explicit user-initiated binary/PDF ingest (needs extra parsers)
 - Code-signed Windows EXE (needs a certificate on a Windows machine)
+- Conversation-level summaries that keep every original message
 
 ## Non-goals
 

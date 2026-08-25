@@ -200,7 +200,7 @@ def test_import_notes_extracts_paragraphs(client):
 
 def test_health_reports_version(client):
     h = client.get("/api/health").json()
-    assert h.get("version") == "2.5.0"
+    assert h.get("version") == "2.6.0"
     assert h.get("db_ok") is True
     assert "auto_backup" in h
 
@@ -286,6 +286,90 @@ def test_entity_detail_includes_similar(client):
     d = client.get(f"/api/entities/{rust['id']}").json()
     assert "similar" in d
     assert isinstance(d["similar"], list)
+
+
+def test_undo_last_extract_supersedes(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    rust = store.find_entity_by_name("Rust")
+    assert rust is not None
+    r = client.post("/api/undo").json()
+    assert r["ok"] is True
+    assert r["undone"] >= 1
+    uid = store.ensure_user_entity()
+    rels = [x for x in store.all_relationships()
+            if x["source_id"] == uid and x["target_id"] == rust["id"]
+            and x["relation"] == "learning"]
+    assert rels and rels[0]["status"] == "superseded"
+    again = client.post("/api/undo").json()
+    assert again["ok"] is False
+
+
+def test_conversation_pin_and_archive(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    convs = client.get("/api/conversations").json()
+    cid = convs[0]["id"]
+    r = client.patch(f"/api/conversations/{cid}", json={"pinned": True})
+    assert r.status_code == 200
+    pinned = client.get("/api/conversations").json()
+    assert pinned[0]["id"] == cid
+    assert pinned[0]["pinned"] == 1
+    client.patch(f"/api/conversations/{cid}", json={"archived": True})
+    hidden = client.get("/api/conversations").json()
+    assert all(c["id"] != cid for c in hidden)
+    shown = client.get("/api/conversations", params={"archived": "1"}).json()
+    assert any(c["id"] == cid for c in shown)
+
+
+def test_import_file_notes(client):
+    r = client.post("/api/import/file", json={
+        "filename": "notes.md",
+        "text": "I am learning Python.\n\nI live in Berlin.",
+    })
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    names = {e["name"] for e in client.get("/api/entities").json()}
+    assert "Python" in names or "Berlin" in names
+
+
+def test_entity_aliases_roundtrip(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    rust = next(e for e in client.get("/api/entities").json() if e["name"] == "Rust")
+    r = client.patch(f"/api/entities/{rust['id']}", json={"aliases": ["Rustlang", "Rust Lang"]})
+    assert r.status_code == 200
+    d = client.get(f"/api/entities/{rust['id']}").json()
+    assert "Rustlang" in d["entity"]["aliases"]
+
+
+def test_memories_text_search(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    hits = client.get("/api/memories", params={"q": "Rust"}).json()
+    assert any("Rust" in m["text"] for m in hits)
+    none = client.get("/api/memories", params={"q": "zzzz-no-memory"}).json()
+    assert none == []
+
+
+def test_entities_orphans_filter(client):
+    from backend import store
+    store.create_entity("Lonely Island", "concept")
+    rows = client.get("/api/entities", params={"orphans": True}).json()
+    names = {e["name"] for e in rows}
+    assert "Lonely Island" in names
+    assert "User" not in names
+
+
+def test_conversation_export_markdown(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    cid = client.get("/api/conversations").json()[0]["id"]
+    r = client.get(f"/api/conversations/{cid}/export")
+    assert r.status_code == 200
+    assert "learning Rust" in r.text
+    assert "text/markdown" in r.headers.get("content-type", "")
+
+
+def test_favicon_served(client):
+    r = client.get("/favicon.png")
+    assert r.status_code == 200
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 def test_chat_empty_and_huge_payload(client):

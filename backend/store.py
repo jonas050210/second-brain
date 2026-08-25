@@ -469,11 +469,12 @@ def _like_pattern(query):
     return f"%{escaped}%"
 
 
-def conversation_summaries(query=None, limit=200):
+def conversation_summaries(query=None, limit=200, archived=False):
     """List conversations with counts/previews. Optional title+message search.
 
     Does not load every message row. LIKE wildcards in ``query`` are escaped
-    so ``%`` cannot dump the whole rail.
+    so ``%`` cannot dump the whole rail. ``archived`` is False (hide), True
+    (only archived), or None (everything).
     """
     try:
         limit = max(1, min(int(limit or 200), 500))
@@ -481,10 +482,10 @@ def conversation_summaries(query=None, limit=200):
         limit = 200
     like = _like_pattern(query)
     params = []
-    where = ""
+    where_parts = []
     if like:
-        where = (
-            "WHERE c.id IN ("
+        where_parts.append(
+            "c.id IN ("
             "  SELECT id FROM conversations WHERE title LIKE ? ESCAPE '#' "
             "  UNION "
             "  SELECT conversation_id FROM messages "
@@ -492,14 +493,21 @@ def conversation_summaries(query=None, limit=200):
             ")"
         )
         params.extend([like, like])
+    if archived is True:
+        where_parts.append("COALESCE(c.archived, 0)=1")
+    elif archived is False:
+        where_parts.append("COALESCE(c.archived, 0)=0")
+    where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
     sql = (
         "SELECT c.id, c.title, c.created_at, c.updated_at, "
+        "  COALESCE(c.pinned, 0) AS pinned, "
+        "  COALESCE(c.archived, 0) AS archived, "
         "  (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id) AS message_count, "
         "  (SELECT m.content FROM messages m WHERE m.conversation_id=c.id AND m.role='user' "
         "   ORDER BY m.id DESC LIMIT 1) AS preview "
         "FROM conversations c "
         f"{where} "
-        "ORDER BY c.updated_at DESC, c.id DESC LIMIT ?"
+        "ORDER BY COALESCE(c.pinned, 0) DESC, c.updated_at DESC, c.id DESC LIMIT ?"
     )
     params.append(limit)
     rows = db.query(sql, tuple(params))
@@ -510,6 +518,8 @@ def conversation_summaries(query=None, limit=200):
             "title": c["title"] or "(untitled)",
             "created_at": c["created_at"],
             "updated_at": c["updated_at"],
+            "pinned": int(c.get("pinned") or 0),
+            "archived": int(c.get("archived") or 0),
             "message_count": int(c.get("message_count") or 0),
             "preview": (c.get("preview") or "")[:80],
         })
@@ -610,3 +620,81 @@ def messages(limit=200):
 
 def message_by_id(mid):
     return db.query_one("SELECT * FROM messages WHERE id=?", (mid,))
+
+
+def record_last_extract(turn):
+    """Remember the last extract so Undo can supersede it. Never deletes rows."""
+    ext = (turn or {}).get("extract") or {}
+    rels = []
+    for r in ext.get("relationships") or []:
+        if not r.get("new"):
+            continue
+        try:
+            rels.append({
+                "source_id": int(r["source"]),
+                "target_id": int(r["target"]),
+                "relation": r["relation"],
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    created = []
+    for e in ext.get("entities") or []:
+        if e.get("created") and e.get("id") is not None:
+            try:
+                created.append(int(e["id"]))
+            except (TypeError, ValueError):
+                continue
+    payload = {
+        "conversation_id": (turn or {}).get("cid"),
+        "message_id": (turn or {}).get("msg_id"),
+        "created_entity_ids": created,
+        "new_relationships": rels,
+        "at": db.utcnow(),
+    }
+    db.set_setting("last_extract", json.dumps(payload))
+    return payload
+
+
+def undo_last_extract():
+    """Supersede relationships from the last extract. Entities stay in history."""
+    raw = db.get_setting("last_extract")
+    if not raw:
+        return {"ok": False, "error": "nothing to undo", "undone": 0,
+                "reply": "Nothing to undo."}
+    try:
+        payload = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return {"ok": False, "error": "nothing to undo", "undone": 0,
+                "reply": "Nothing to undo."}
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "nothing to undo", "undone": 0,
+                "reply": "Nothing to undo."}
+    names = []
+    changed = 0
+    for r in payload.get("new_relationships") or []:
+        try:
+            sid = int(r["source_id"])
+            tid = int(r["target_id"])
+            rel = r["relation"]
+        except (KeyError, TypeError, ValueError):
+            continue
+        n = supersede_relationship(sid, tid, rel)
+        if not n:
+            continue
+        changed += n
+        srow, trow = entity_row(sid), entity_row(tid)
+        if srow and trow:
+            names.append(f'{srow["name"]} {rel} {trow["name"]}')
+    label = "Undid last extract" + (": " + "; ".join(names[:8]) if names else "")
+    add_memory("command", label, entity_ids=payload.get("created_entity_ids") or [],
+               message_id=payload.get("message_id"))
+    db.set_setting("last_extract", "")
+    if not changed:
+        return {"ok": True, "undone": 0,
+                "reply": "Nothing durable to undo from the last extract."}
+    return {
+        "ok": True,
+        "undone": changed,
+        "reply": "Undid the last extract. " + "; ".join(names[:8]) + " (no longer active).",
+    }
+

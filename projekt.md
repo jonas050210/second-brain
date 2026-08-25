@@ -4,8 +4,8 @@ Every first-party file is inlined below, including tests, launcher,
 and the vendor Cytoscape build. This is documentation, not a second app.
 Live source of truth remains the individual files.
 
-Generated: 2026-08-25 15:29 UTC
-Version: 2.5.0
+Generated: 2026-08-25 15:40 UTC
+Version: 2.6.0
 Files archived: 60
 
 Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
@@ -80,25 +80,25 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
      285  .gitignore
      459  backend/.env.example
        0  backend/__init__.py
-   45015  backend/app.py
+   49469  backend/app.py
     7918  backend/backup.py
-   15631  backend/commands.py
+   15980  backend/commands.py
     8457  backend/config.py
-    7595  backend/db.py
+    7835  backend/db.py
    16937  backend/export.py
    23019  backend/extract.py
-   22824  backend/fallback.py
+   22923  backend/fallback.py
    15570  backend/graph.py
     4385  backend/ollama.py
     4130  backend/paths.py
      242  backend/requirements-dev.txt
       66  backend/requirements.txt
-   39931  backend/search.py
-   21276  backend/store.py
+   42948  backend/search.py
+   24655  backend/store.py
     5372  backend/summarize.py
-   70836  frontend/app.js
-   19189  frontend/index.html
-   28208  frontend/style.css
+   76716  frontend/app.js
+   19867  frontend/index.html
+   28722  frontend/style.css
   373304  frontend/vendor/cytoscape.min.js
      222  launcher/__init__.py
     3553  launcher/__main__.py
@@ -111,27 +111,27 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
     9022  launcher/tray.py
      728  main.py
       91  pytest.ini
-    8248  README.md
+    8564  README.md
      165  requirements.txt
-    2949  ROADMAP
+    3358  ROADMAP
      223  run.py
     2743  secondbrain.spec
     9375  start.py
-   17929  test_overall.py
+   18003  test_overall.py
     2849  tests/conftest.py
-   11246  tests/test_api.py
+   14532  tests/test_api.py
     5976  tests/test_api_phase3.py
     3318  tests/test_backup.py
-    6002  tests/test_commands.py
+    7033  tests/test_commands.py
     5750  tests/test_export.py
    10392  tests/test_extraction.py
-    5592  tests/test_frontend.py
+    5779  tests/test_frontend.py
     4805  tests/test_graph.py
     8594  tests/test_launcher.py
-    3365  tests/test_migration.py
+    3507  tests/test_migration.py
     2945  tests/test_ollama.py
     1468  tests/test_reliability.py
-    6997  tests/test_search.py
+    7468  tests/test_search.py
     3065  tests/test_search_advanced.py
     6837  tests/test_store.py
     2508  tests/test_summarize.py
@@ -235,7 +235,7 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -596,6 +596,8 @@ def finalize_turn(turn, reply):
         out["is_answer"] = True
         out["status"] = turn.get("status") or ""
         out["sources"] = turn.get("sources") or []
+    if turn["kind"] == "extract":
+        store.record_last_extract(turn)
     if turn["kind"] in ("extract", "command") and (
         out.get("remembered") or out.get("updates") or out.get("is_command")
     ):
@@ -645,8 +647,14 @@ def get_message(mid: int):
 
 
 @app.get("/api/conversations")
-def conversations(q: str = None):
-    return store.conversation_summaries(query=q)
+def conversations(q: str = None, archived: str = "0"):
+    flag = False
+    raw = (archived or "0").strip().lower()
+    if raw in ("1", "true", "yes"):
+        flag = True
+    elif raw in ("all", "*"):
+        flag = None
+    return store.conversation_summaries(query=q, archived=flag)
 
 
 @app.post("/api/conversations/new")
@@ -657,6 +665,8 @@ def conversations_new():
 
 class ConversationPatch(BaseModel):
     title: Optional[str] = None
+    pinned: Optional[bool] = None
+    archived: Optional[bool] = None
 
 
 @app.patch("/api/conversations/{cid}")
@@ -665,7 +675,45 @@ def conversation_update(cid: int, body: ConversationPatch):
         raise HTTPException(404, "conversation not found")
     if body.title is not None:
         store.touch_conversation(cid, title=body.title.strip()[:80])
+    fields, params = [], []
+    if body.pinned is not None:
+        fields.append("pinned=?")
+        params.append(1 if body.pinned else 0)
+    if body.archived is not None:
+        fields.append("archived=?")
+        params.append(1 if body.archived else 0)
+    if fields:
+        fields.append("updated_at=?")
+        params.append(db.utcnow())
+        params.append(cid)
+        db.execute(f"UPDATE conversations SET {', '.join(fields)} WHERE id=?", params)
     return {"ok": True, "conversation": store.conversation_row(cid)}
+
+
+@app.get("/api/conversations/{cid}/export")
+def conversation_export(cid: int):
+    conv = store.conversation_row(cid)
+    if not conv:
+        raise HTTPException(404, "conversation not found")
+    lines = [
+        f"# {conv.get('title') or 'Conversation'}",
+        "",
+        f"Exported: {db.utcnow()}",
+        "",
+    ]
+    for m in store.conversation_messages(cid):
+        role = m.get("role") or "user"
+        when = (m.get("created_at") or "")[:19]
+        lines.append(f"**{role}** ({when})")
+        lines.append("")
+        lines.append(m.get("content") or "")
+        lines.append("")
+    name = f"conversation-{cid}.md"
+    return Response(
+        content="\n".join(lines),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
 
 
 @app.delete("/api/conversations/{cid}")
@@ -749,9 +797,35 @@ def _entity_degree_map():
     return deg
 
 
+@app.get("/api/entities/duplicates")
+def entity_duplicates(limit: int = 20):
+    """Near-duplicate pairs by embedding. Never auto-merges."""
+    try:
+        limit = max(1, min(int(limit or 20), 50))
+    except (TypeError, ValueError):
+        limit = 20
+    seen, pairs = set(), []
+    for e in store.all_entities():
+        if (e.get("norm_name") or "") == "user":
+            continue
+        for hit in store.similar_entities(e["id"], limit=3, min_score=0.88):
+            key = tuple(sorted((e["id"], hit["id"])))
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append({
+                "a": {"id": e["id"], "name": e["name"], "type": e["type"]},
+                "b": {"id": hit["id"], "name": hit["name"], "type": hit["type"]},
+                "score": hit["score"],
+            })
+            if len(pairs) >= limit:
+                return pairs
+    return pairs
+
+
 @app.get("/api/entities")
 def entities(q: str = None, type: str = None, pinned: bool = None, important: bool = None,
-             sort: str = "name"):
+             sort: str = "name", orphans: bool = False):
     rows = store.all_entities()
     if type:
         rows = [r for r in rows if r["type"] == type]
@@ -769,6 +843,9 @@ def entities(q: str = None, type: str = None, pinned: bool = None, important: bo
             "important": r.get("important", 0), "status": r.get("status", "active"),
             "created_at": r["created_at"], "updated_at": r["updated_at"],
             "source_message_id": r.get("source_message_id")} for r in rows]
+    if orphans:
+        out = [e for e in out if int(e.get("degree") or 0) == 0
+               and (e.get("name") or "").lower() != "user"]
     key = (sort or "name").lower()
     if key == "degree":
         out.sort(key=lambda e: (-int(e.get("degree") or 0), (e.get("name") or "").lower()))
@@ -881,6 +958,7 @@ class EntityPatch(BaseModel):
     status: Optional[str] = None
     pinned: Optional[bool] = None
     important: Optional[bool] = None
+    aliases: Optional[List[str]] = None
 
 
 @app.patch("/api/entities/{eid}")
@@ -903,6 +981,16 @@ def entity_update(eid: int, body: EntityPatch):
         fields["pinned"] = 1 if body.pinned else 0
     if body.important is not None:
         fields["important"] = 1 if body.important else 0
+    if body.aliases is not None:
+        cleaned, seen = [], set()
+        for raw in body.aliases:
+            name = str(raw or "").strip()[:80]
+            key = store.normalize_name(name)
+            if not name or key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(name)
+        fields["aliases"] = cleaned[:20]
     store.update_entity(eid, **fields)
     return {"ok": True}
 
@@ -1019,7 +1107,7 @@ def list_facts(active_only: bool = True, status: str = None, entity_id: int = No
 @app.get("/api/memories")
 def memories(limit: int = 200, entity_id: int = None, kind: str = None,
              type: str = None, conversation_id: int = None, date: str = None,
-             entity: str = None):
+             entity: str = None, q: str = None):
     rows = store.recent_memories(limit if limit <= 2000 else 2000)
     resolved_eid = entity_id
     if resolved_eid is None and entity:
@@ -1038,6 +1126,8 @@ def memories(limit: int = 200, entity_id: int = None, kind: str = None,
         if resolved_eid is not None and resolved_eid not in json.loads(m["entity_ids"] or "[]"):
             continue
         if kind and m["kind"] != kind:
+            continue
+        if q and q.lower() not in (m.get("text") or "").lower():
             continue
         if date and not m["created_at"].startswith(date):
             continue
@@ -1182,6 +1272,33 @@ def import_notes(body: NotesIn):
         raise HTTPException(400, result.get("error") or "import failed")
     _safe_auto_backup()
     return result
+
+
+class FileIn(BaseModel):
+    filename: str
+    text: str
+
+
+@app.post("/api/import/file")
+def import_file(body: FileIn):
+    """User-initiated text ingest. JSON uses merge import; anything else is notes."""
+    if len((body.text or "").encode("utf-8")) > MAX_IMPORT_BYTES:
+        raise HTTPException(400, "file payload too large (8 MB max)")
+    name = (body.filename or "").lower().strip()
+    if name.endswith(".json"):
+        result = export.import_from_json(body.text, mode="merge")
+    else:
+        result = export.import_notes(body.text)
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error") or "import failed")
+    _safe_auto_backup()
+    return result
+
+
+@app.post("/api/undo")
+def undo_last():
+    """Supersede the last extract. Never deletes the database or history."""
+    return store.undo_last_extract()
 
 
 # --------------------------------------------------------------------------
@@ -1427,6 +1544,19 @@ def chat_stream(body: ChatIn):
 # --------------------------------------------------------------------------
 # Static frontend (served by the same local server — no build step needed)
 # --------------------------------------------------------------------------
+
+@app.get("/favicon.ico")
+@app.get("/favicon.png")
+def favicon():
+    from launcher.icons import icon_ico, icon_png
+    png = icon_png()
+    if png is not None:
+        return FileResponse(str(png), media_type="image/png")
+    ico = icon_ico()
+    if ico is not None:
+        return FileResponse(str(ico), media_type="image/x-icon")
+    raise HTTPException(404, "icon not found")
+
 
 if os.path.isdir(config.FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=config.FRONTEND_DIR, html=True), name="frontend")
@@ -1742,6 +1872,8 @@ def is_command(text):
         return True
     if re.match(r"^(?:change|update|rename)\s+.+\s+to\s+\S", t):
         return True
+    if t in ("undo last", "undo that", "scratch that", "that was wrong"):
+        return True
     if t.startswith("set confidence"):
         return True
     if re.match(r"^(?:delete|remove)\s+(?:the\s+)?memory\b", t):
@@ -1814,6 +1946,11 @@ def handle_command(text):
     and (optionally) the list of affected entity ids, or None if not a command."""
     t = text.strip()
     tl = t.lower().rstrip(".,!?;: ")
+
+    if tl in ("undo last", "undo that", "scratch that", "that was wrong"):
+        r = store.undo_last_extract()
+        return {"reply": r.get("reply") or r.get("error") or "Done.",
+                "ok": bool(r.get("ok")), "undone": r.get("undone", 0)}
 
     # ---- remember [that] X ----------------------------------------------
     m = re.match(r"(?:please\s+)?remember(?:\s+that)?\s+(.+)$", t.strip(), re.I)
@@ -2240,7 +2377,7 @@ from . import config
 
 _write_lock = threading.Lock()
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS entities (
@@ -2282,7 +2419,9 @@ CREATE TABLE IF NOT EXISTS conversations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     title       TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
+    updated_at  TEXT NOT NULL,
+    pinned      INTEGER NOT NULL DEFAULT 0,
+    archived    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -2329,6 +2468,10 @@ MIGRATIONS = {
     2: [],
     3: [
         ("memories", "meta", "TEXT NOT NULL DEFAULT '{}'"),
+    ],
+    4: [
+        ("conversations", "pinned", "INTEGER NOT NULL DEFAULT 0"),
+        ("conversations", "archived", "INTEGER NOT NULL DEFAULT 0"),
     ],
 }
 
@@ -3865,8 +4008,11 @@ def extract_with_rules(text):
 
     # ---- 4. people ------------------------------------------------------
     last_person = None
-    for m in re.finditer(r"(?:my friend|my colleague|my partner|i met|i know|met someone called)\s+([a-z][a-z0-9 .\-]{1,24}?)(?=[,.;!]|\s+(?:who|and|,|\.|$))", t):
-        p = add(m.group(1).strip(), "person")
+    for m in re.finditer(r"(?:my friend|my colleague|my coworker|my partner|i met|i know|met someone called)\s+([a-z][a-z0-9 .\-]{1,24}?)(?=[,.;!]|\s+(?:who|and|,|\.|$))", t):
+        raw = m.group(1).strip()
+        if canonical_name(raw).lower() in TECH:
+            continue
+        p = add(raw, "person")
         if p:
             last_person = p
         add_rel("User", p, "knows")
@@ -4575,7 +4721,7 @@ import os
 import sys
 from pathlib import Path
 
-APP_VERSION = "2.5.0"
+APP_VERSION = "2.6.0"
 DB_NAME = "brain.db"
 
 
@@ -5372,6 +5518,19 @@ _WHEN_Q = re.compile(
     r"|living (?:in )?|meet(?:ing)? )?(.+?)\??$",
     re.I,
 )
+_OVERVIEW_Q = re.compile(
+    r"^(?:what do i know|what do you know(?: about me)?|"
+    r"summarize (?:my )?(?:brain|memory|memories)|"
+    r"give me an overview|what(?:'s| is) in my (?:brain|memory))\??$",
+    re.I,
+)
+_COUNT_Q = re.compile(
+    r"^(?:how many|what(?:'s| is) the number of)\s+"
+    r"(projects?|people|persons?|friends|technologies|entities|"
+    r"memories|conversations|facts)"
+    r"(?:\s+do i have|\s+have i|\s+are there|\s+do i store)?\??$",
+    re.I,
+)
 
 
 def _used_by_answer(query_text):
@@ -5496,6 +5655,67 @@ def _changed_answer(query_text):
     }
 
 
+
+def _overview_answer(query_text):
+    """Compact grounded recap of active facts. Never invents."""
+    if not _OVERVIEW_Q.match((query_text or "").strip()):
+        return None
+    facts, seen = [], set()
+    for intent in ("learning", "project", "technology", "interest", "goal",
+                   "person", "location", "organization"):
+        for f in intent_facts(intent):
+            key = f.get("text")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            facts.append(f)
+    if not facts:
+        return _unknown(query_text)
+    return {
+        "text": "; ".join(f["text"] for f in facts[:12]) + ". (from stored memory)",
+        "status": "known",
+        "sources": sources_for_facts(facts),
+        "final": True,
+    }
+
+
+def _count_answer(query_text):
+    """Count stored things. Reads SQLite only."""
+    m = _COUNT_Q.match((query_text or "").strip())
+    if not m:
+        return None
+    kind = (m.group(1) or "").lower()
+    ents = store.all_entities()
+    if kind.startswith("project"):
+        n = sum(1 for e in ents if e["type"] == "project" and e.get("status", "active") == "active")
+        label = "project" if n == 1 else "projects"
+    elif kind.startswith("technolog"):
+        n = sum(1 for e in ents if e["type"] == "technology" and e.get("status", "active") == "active")
+        label = "technology" if n == 1 else "technologies"
+    elif kind in ("people", "persons", "person", "friends"):
+        n = sum(1 for e in ents if e["type"] == "person" and e.get("norm_name") != "user"
+                and e.get("status", "active") == "active")
+        label = "person" if n == 1 else "people"
+    elif kind.startswith("entit"):
+        n = len(ents)
+        label = "entity" if n == 1 else "entities"
+    elif kind.startswith("memor"):
+        n = db.query("SELECT COUNT(*) c FROM memories")[0]["c"]
+        label = "memory" if n == 1 else "memories"
+    elif kind.startswith("conversation"):
+        n = len(store.all_conversations())
+        label = "conversation" if n == 1 else "conversations"
+    else:
+        n = len(store.all_relationships(active_only=True))
+        label = "fact" if n == 1 else "facts"
+    return {
+        "text": f"You have {n} stored {label}. (from stored memory)",
+        "status": "known",
+        "sources": [],
+        "final": True,
+    }
+
+
 def retrieve_answer(query_text, filters=None):
     """Deterministic retrieval. `final` answers skip the LLM composer."""
     direct = _direct_fact_answer(query_text)
@@ -5521,6 +5741,12 @@ def retrieve_answer(query_text, filters=None):
     when = _when_answer(query_text)
     if when is not None:
         return when
+    overview = _overview_answer(query_text)
+    if overview is not None:
+        return overview
+    counted = _count_answer(query_text)
+    if counted is not None:
+        return counted
     about = _about_answer(query_text)
     if about is not None:
         out = dict(about)
@@ -6218,11 +6444,12 @@ def _like_pattern(query):
     return f"%{escaped}%"
 
 
-def conversation_summaries(query=None, limit=200):
+def conversation_summaries(query=None, limit=200, archived=False):
     """List conversations with counts/previews. Optional title+message search.
 
     Does not load every message row. LIKE wildcards in ``query`` are escaped
-    so ``%`` cannot dump the whole rail.
+    so ``%`` cannot dump the whole rail. ``archived`` is False (hide), True
+    (only archived), or None (everything).
     """
     try:
         limit = max(1, min(int(limit or 200), 500))
@@ -6230,10 +6457,10 @@ def conversation_summaries(query=None, limit=200):
         limit = 200
     like = _like_pattern(query)
     params = []
-    where = ""
+    where_parts = []
     if like:
-        where = (
-            "WHERE c.id IN ("
+        where_parts.append(
+            "c.id IN ("
             "  SELECT id FROM conversations WHERE title LIKE ? ESCAPE '#' "
             "  UNION "
             "  SELECT conversation_id FROM messages "
@@ -6241,14 +6468,21 @@ def conversation_summaries(query=None, limit=200):
             ")"
         )
         params.extend([like, like])
+    if archived is True:
+        where_parts.append("COALESCE(c.archived, 0)=1")
+    elif archived is False:
+        where_parts.append("COALESCE(c.archived, 0)=0")
+    where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
     sql = (
         "SELECT c.id, c.title, c.created_at, c.updated_at, "
+        "  COALESCE(c.pinned, 0) AS pinned, "
+        "  COALESCE(c.archived, 0) AS archived, "
         "  (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id) AS message_count, "
         "  (SELECT m.content FROM messages m WHERE m.conversation_id=c.id AND m.role='user' "
         "   ORDER BY m.id DESC LIMIT 1) AS preview "
         "FROM conversations c "
         f"{where} "
-        "ORDER BY c.updated_at DESC, c.id DESC LIMIT ?"
+        "ORDER BY COALESCE(c.pinned, 0) DESC, c.updated_at DESC, c.id DESC LIMIT ?"
     )
     params.append(limit)
     rows = db.query(sql, tuple(params))
@@ -6259,6 +6493,8 @@ def conversation_summaries(query=None, limit=200):
             "title": c["title"] or "(untitled)",
             "created_at": c["created_at"],
             "updated_at": c["updated_at"],
+            "pinned": int(c.get("pinned") or 0),
+            "archived": int(c.get("archived") or 0),
             "message_count": int(c.get("message_count") or 0),
             "preview": (c.get("preview") or "")[:80],
         })
@@ -6359,6 +6595,83 @@ def messages(limit=200):
 
 def message_by_id(mid):
     return db.query_one("SELECT * FROM messages WHERE id=?", (mid,))
+
+
+def record_last_extract(turn):
+    """Remember the last extract so Undo can supersede it. Never deletes rows."""
+    ext = (turn or {}).get("extract") or {}
+    rels = []
+    for r in ext.get("relationships") or []:
+        if not r.get("new"):
+            continue
+        try:
+            rels.append({
+                "source_id": int(r["source"]),
+                "target_id": int(r["target"]),
+                "relation": r["relation"],
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    created = []
+    for e in ext.get("entities") or []:
+        if e.get("created") and e.get("id") is not None:
+            try:
+                created.append(int(e["id"]))
+            except (TypeError, ValueError):
+                continue
+    payload = {
+        "conversation_id": (turn or {}).get("cid"),
+        "message_id": (turn or {}).get("msg_id"),
+        "created_entity_ids": created,
+        "new_relationships": rels,
+        "at": db.utcnow(),
+    }
+    db.set_setting("last_extract", json.dumps(payload))
+    return payload
+
+
+def undo_last_extract():
+    """Supersede relationships from the last extract. Entities stay in history."""
+    raw = db.get_setting("last_extract")
+    if not raw:
+        return {"ok": False, "error": "nothing to undo", "undone": 0,
+                "reply": "Nothing to undo."}
+    try:
+        payload = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return {"ok": False, "error": "nothing to undo", "undone": 0,
+                "reply": "Nothing to undo."}
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "nothing to undo", "undone": 0,
+                "reply": "Nothing to undo."}
+    names = []
+    changed = 0
+    for r in payload.get("new_relationships") or []:
+        try:
+            sid = int(r["source_id"])
+            tid = int(r["target_id"])
+            rel = r["relation"]
+        except (KeyError, TypeError, ValueError):
+            continue
+        n = supersede_relationship(sid, tid, rel)
+        if not n:
+            continue
+        changed += n
+        srow, trow = entity_row(sid), entity_row(tid)
+        if srow and trow:
+            names.append(f'{srow["name"]} {rel} {trow["name"]}')
+    label = "Undid last extract" + (": " + "; ".join(names[:8]) if names else "")
+    add_memory("command", label, entity_ids=payload.get("created_entity_ids") or [],
+               message_id=payload.get("message_id"))
+    db.set_setting("last_extract", "")
+    if not changed:
+        return {"ok": True, "undone": 0,
+                "reply": "Nothing durable to undo from the last extract."}
+    return {
+        "ok": True,
+        "undone": changed,
+        "reply": "Undid the last extract. " + "; ".join(names[:8]) + " (no longer active).",
+    }
 ````
 
 ## `backend/summarize.py`
@@ -6953,6 +7266,15 @@ $("#chat-input").addEventListener("input", (e) => {
   e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px";
 });
 
+if ($("#chat-undo")) {
+  $("#chat-undo").addEventListener("click", async () => {
+    try {
+      const r = await api("/undo", { method: "POST" });
+      toast(r.reply || (r.ok ? "Undone" : (r.error || "Nothing to undo")));
+      if (r.ok) { loadDashboard(); buildGraph(); loadMemory(); }
+    } catch (err) { toast(err.message); }
+  });
+}
 $("#chat-new").addEventListener("click", async () => {
   const r = await api("/conversations/new", { method: "POST" });
   currentConversationId = r.conversation_id;
@@ -6967,27 +7289,59 @@ async function loadConversations() {
   const list = $("#conv-list");
   if (!list) return;
   const q = ($("#conv-search") && $("#conv-search").value.trim()) || "";
+  const showArchived = $("#conv-archived") && $("#conv-archived").checked;
   try {
-    const convs = await api("/conversations" + (q ? ("?q=" + encodeURIComponent(q)) : ""));
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (showArchived) params.set("archived", "1");
+    const convs = await api("/conversations" + (params.toString() ? ("?" + params.toString()) : ""));
     if (!convs.length) {
       list.innerHTML = `<p class="muted">${q ? "No conversations match." : "No conversations yet."}</p>`;
       return;
     }
     list.innerHTML = convs.map((c) => `
-      <div class="conv-item ${c.id === currentConversationId ? "active" : ""}" data-id="${c.id}">
-        <div class="conv-title" data-id="${c.id}" title="Double-click to rename">${esc(c.title || "(untitled)")}</div>
+      <div class="conv-item ${c.id === currentConversationId ? "active" : ""} ${c.pinned ? "pinned" : ""} ${c.archived ? "archived" : ""}" data-id="${c.id}">
+        <div class="conv-title" data-id="${c.id}" title="Double-click to rename">${c.pinned ? "★ " : ""}${esc(c.title || "(untitled)")}</div>
         <div class="conv-preview">${esc(c.preview || "")}</div>
+        <button class="rel-del conv-pin" data-id="${c.id}" title="${c.pinned ? "Unpin" : "Pin"}">${c.pinned ? "★" : "☆"}</button>
+        <button class="rel-del conv-arch" data-id="${c.id}" title="${c.archived ? "Unarchive" : "Archive"}">${c.archived ? "Unarch" : "Arch"}</button>
+        <button class="rel-del conv-export" data-id="${c.id}" title="Export markdown">↓</button>
         <button class="rel-del conv-del" data-id="${c.id}" title="Delete conversation">✕</button>
       </div>`).join("");
     list.querySelectorAll(".conv-item").forEach((el) =>
       el.addEventListener("click", (ev) => {
-        if (ev.target.closest(".conv-del") || ev.target.closest(".conv-title")) return;
+        if (ev.target.closest(".rel-del") || ev.target.closest(".conv-title")) return;
         openConversation(Number(el.dataset.id));
       }));
     list.querySelectorAll(".conv-title").forEach((el) =>
       el.addEventListener("dblclick", (ev) => {
         ev.stopPropagation();
         renameConversation(Number(el.dataset.id), el);
+      }));
+    list.querySelectorAll(".conv-pin").forEach((btn) =>
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const row = convs.find((c) => c.id === Number(btn.dataset.id));
+        await api("/conversations/" + btn.dataset.id, {
+          method: "PATCH", body: JSON.stringify({ pinned: !(row && row.pinned) }),
+        });
+        loadConversations();
+      }));
+    list.querySelectorAll(".conv-arch").forEach((btn) =>
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const row = convs.find((c) => c.id === Number(btn.dataset.id));
+        await api("/conversations/" + btn.dataset.id, {
+          method: "PATCH", body: JSON.stringify({ archived: !(row && row.archived) }),
+        });
+        loadConversations();
+      }));
+    list.querySelectorAll(".conv-export").forEach((btn) =>
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const r = await fetch(API + "/conversations/" + btn.dataset.id + "/export");
+        downloadBlob(await r.text(), "conversation-" + btn.dataset.id + ".md", "text/markdown");
+        toast("Conversation exported");
       }));
     list.querySelectorAll(".conv-del").forEach((btn) =>
       btn.addEventListener("click", async (ev) => {
@@ -7235,6 +7589,7 @@ async function loadBrowse() {
   if ($("#browse-important") && $("#browse-important").checked) params.set("important", "true");
   const sort = $("#browse-sort") && $("#browse-sort").value;
   if (sort && sort !== "name") params.set("sort", sort);
+  if ($("#browse-orphans") && $("#browse-orphans").checked) params.set("orphans", "true");
   const ents = await api("/entities?" + params.toString());
   list.innerHTML = ents.length ? ents.map((e) => `
     <div class="browse-row" data-id="${e.id}">
@@ -7437,6 +7792,8 @@ async function loadMemory() {
   if (kind) params.set("kind", kind);
   if (date) params.set("date", date);
   if (entityQ) params.set("entity", entityQ);
+  const mq = $("#mem-q") && $("#mem-q").value.trim();
+  if (mq) params.set("q", mq);
   const mems = await api("/memories?" + params.toString());
   const byDay = {};
   mems.forEach((m) => {
@@ -7472,6 +7829,7 @@ $("#mem-date").addEventListener("change", loadMemory);
 $("#mem-entity").addEventListener("keydown", (e) => { if (e.key === "Enter") loadMemory(); });
 $("#mem-clear").addEventListener("click", () => {
   $("#mem-kind").value = ""; $("#mem-entity").value = ""; $("#mem-date").value = "";
+  if ($("#mem-q")) $("#mem-q").value = "";
   loadMemory();
 });
 
@@ -7618,6 +7976,11 @@ async function loadEntity(id) {
     <div class="entity-sec">
       <h3>Details</h3>
       <div class="meta-kv">Aliases: <b>${aliases}</b></div>
+      <div class="alias-edit">
+        ${(e.aliases || []).map((a) => `<span class="remembered-chip alias-chip" data-alias="${esc(a)}">${esc(a)} <button class="rel-del alias-del" data-alias="${esc(a)}" title="Remove alias">✕</button></span>`).join("")}
+        <input class="input" id="alias-add" placeholder="Add alias" />
+        <button class="btn-ghost" id="alias-add-btn">Add</button>
+      </div>
       <div class="meta-kv">Embedding: <b>${e.embedding ? "stored" : "none"}</b></div>
       <div class="meta-kv">Created: <b>${fmtDay(e.created_at)} ${fmtTime(e.created_at)}</b></div>
       <div class="meta-kv">Updated: <b>${fmtDay(e.updated_at)} ${fmtTime(e.updated_at)}</b></div>
@@ -7743,6 +8106,23 @@ async function loadEntity(id) {
       toast("Relationship deleted");
       loadEntity(id); buildGraph();
     }));
+  const saveAliases = async (next) => {
+    await api("/entities/" + id, { method: "PATCH", body: JSON.stringify({ aliases: next }) });
+    loadEntity(id);
+  };
+  $$("#entity-inner .alias-del").forEach((btn) =>
+    btn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      const drop = btn.dataset.alias;
+      saveAliases((e.aliases || []).filter((a) => a !== drop));
+    }));
+  const addAliasBtn = $("#alias-add-btn");
+  if (addAliasBtn) addAliasBtn.addEventListener("click", () => {
+    const name = (($("#alias-add") && $("#alias-add").value) || "").trim();
+    if (!name) return;
+    const next = (e.aliases || []).concat([name]);
+    saveAliases(next);
+  });
   $("#act-edit").addEventListener("click", () => $("#entity-edit-sec").style.display = "block");
   $("#edit-cancel").addEventListener("click", () => $("#entity-edit-sec").style.display = "none");
   $("#edit-save").addEventListener("click", async () => {
@@ -7981,6 +8361,24 @@ $("#import-replace").addEventListener("click", async () => {
   } catch (e) { $("#import-status").textContent = "Error: " + e.message; }
 });
 
+if ($("#import-file")) {
+  $("#import-file").addEventListener("change", async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const r = await api("/import/file", {
+        method: "POST",
+        body: JSON.stringify({ filename: file.name, text }),
+      });
+      $("#import-status").textContent = r.ok
+        ? `Imported ${file.name}` + (r.chunks != null ? ` (${r.chunks} notes, ${r.remembered || 0} memories).` : ".")
+        : "Error: " + (r.error || "failed");
+      if (r.ok) { loadDashboard(); buildGraph(); loadMemory(); loadConversations(); }
+    } catch (e) { $("#import-status").textContent = "Error: " + e.message; }
+    ev.target.value = "";
+  });
+}
 if ($("#import-notes-btn")) {
   $("#import-notes-btn").addEventListener("click", async () => {
     const text = ($("#import-notes") && $("#import-notes").value || "").trim();
@@ -8127,6 +8525,32 @@ if ($("#browse-type")) $("#browse-type").addEventListener("change", loadBrowse);
 if ($("#browse-pinned")) $("#browse-pinned").addEventListener("change", loadBrowse);
 if ($("#browse-important")) $("#browse-important").addEventListener("change", loadBrowse);
 if ($("#browse-sort")) $("#browse-sort").addEventListener("change", loadBrowse);
+if ($("#browse-orphans")) $("#browse-orphans").addEventListener("change", loadBrowse);
+if ($("#browse-dupes")) $("#browse-dupes").addEventListener("click", showDuplicatePairs);
+if ($("#conv-archived")) $("#conv-archived").addEventListener("change", loadConversations);
+if ($("#mem-q")) $("#mem-q").addEventListener("keydown", (e) => { if (e.key === "Enter") loadMemory(); });
+
+async function showDuplicatePairs() {
+  try {
+    const pairs = await api("/entities/duplicates");
+    if (!pairs.length) { toast("No near-duplicates found"); return; }
+    const modal = document.createElement("div");
+    modal.className = "modal";
+    modal.innerHTML = `<div class="modal-card"><h3>Possible duplicates</h3>
+      <p class="muted">Embedding neighbors. Merge only if they are the same thing.</p>
+      <div class="modal-list">${pairs.map((p) => `
+        <div class="modal-opt" data-a="${p.a.id}" data-b="${p.b.id}">
+          <span>${esc(p.a.name)}</span> · <span>${esc(p.b.name)}</span>
+          <span class="conf">${Math.round((p.score || 0) * 100)}%</span>
+        </div>`).join("")}</div>
+      <div style="margin-top:12px;text-align:right"><button class="btn-ghost" id="dup-close">Close</button></div></div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+    modal.querySelector("#dup-close").addEventListener("click", () => modal.remove());
+    modal.querySelectorAll(".modal-opt").forEach((el) =>
+      el.addEventListener("click", () => { modal.remove(); openEntity(el.dataset.a); }));
+  } catch (err) { toast(err.message); }
+}
 
 document.addEventListener("keydown", (e) => {
   const tag = (e.target && e.target.tagName) || "";
@@ -8182,7 +8606,7 @@ boot();
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Second Brain — Local AI Knowledge Graph</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23070a13'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' fill='%2322d3ee'%3E%E2%97%86%3C/text%3E%3C/svg%3E" />
+  <link rel="icon" href="/favicon.png" type="image/png" />
   <link rel="stylesheet" href="style.css" />
   <script src="vendor/cytoscape.min.js"></script>
 </head>
@@ -8284,6 +8708,7 @@ boot();
             <p class="view-sub">Just talk to it — your knowledge graph builds itself.</p>
           </div>
           <div class="graph-tools">
+            <button class="btn-ghost" id="chat-undo" title="Undo last extract — history stays">Undo last</button>
             <button class="btn-ghost" id="chat-new">New conversation</button>
           </div>
         </header>
@@ -8291,6 +8716,10 @@ boot();
           <aside class="conv-rail">
             <div class="conv-rail-head">Conversations</div>
             <input id="conv-search" class="input" type="search" placeholder="Search chats…" autocomplete="off" />
+            <label class="toggle small">
+              <input type="checkbox" id="conv-archived" />
+              <span>Archived</span>
+            </label>
             <div id="conv-list" class="conv-list"></div>
           </aside>
         <div class="chat-wrap">
@@ -8401,6 +8830,11 @@ boot();
             <option value="recent">Recently updated</option>
             <option value="confidence">Confidence</option>
           </select>
+          <label class="toggle small">
+            <input type="checkbox" id="browse-orphans" />
+            <span>Unlinked only</span>
+          </label>
+          <button class="btn-ghost" id="browse-dupes">Find duplicates</button>
         </div>
         <div id="browse-list" class="browse-list"></div>
       </section>
@@ -8425,6 +8859,7 @@ boot();
             <option value="summary">Summaries</option>
           </select>
           <input id="mem-entity" class="input" type="text" placeholder="Filter by entity…" />
+          <input id="mem-q" class="input" type="search" placeholder="Search memory text…" />
           <input id="mem-date" class="input" type="date" />
           <button class="btn-ghost" id="mem-clear">Clear</button>
         </div>
@@ -8597,6 +9032,10 @@ boot();
               <textarea class="input" id="import-notes" rows="3" placeholder="Paste notes. Each paragraph is extracted into memory."></textarea>
             </label>
             <button class="btn-primary" id="import-notes-btn">Import notes</button>
+            <label class="field">
+              <span>Import a local file <span class="muted">(.txt / .md / .json — you pick it)</span></span>
+              <input class="input" id="import-file" type="file" accept=".txt,.md,.markdown,.json,text/plain,application/json" />
+            </label>
           </div>
         </div>
 
@@ -9132,6 +9571,14 @@ button { font-family: var(--font); }
   border: 1px solid transparent; position: relative;
 }
 .conv-item .conv-del { position: absolute; top: 6px; right: 6px; }
+.conv-item .conv-export { position: absolute; top: 6px; right: 24px; }
+.conv-item .conv-arch { position: absolute; top: 6px; right: 42px; font-size: 10px; }
+.conv-item .conv-pin { position: absolute; top: 6px; right: 78px; }
+.conv-item.archived { opacity: 0.55; }
+.conv-item.pinned .conv-title { color: var(--c-concept); }
+.alias-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.alias-edit .input { max-width: 140px; padding: 6px 8px; }
+#conv-archived { margin: 0 0 8px; }
 .conv-item:hover { background: var(--surface-2); }
 .conv-item.active { background: rgba(34,211,238,0.1); border-color: rgba(34,211,238,0.3); }
 .conv-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -9273,7 +9720,7 @@ This package does not reimplement memory, search, or the API. It only
 checks the environment and starts ``backend.app``.
 """
 
-__version__ = "2.5.0"
+__version__ = "2.6.0"
 ````
 
 ## `launcher/__main__.py`
@@ -10739,9 +11186,12 @@ message, and timestamps. Duplicates merge. Exclusive facts (`prefers`,
 Commands (deterministic, always hit SQLite):
 
 Remember · Forget · Remove · Pin · Unpin · Important · Unimportant · Merge ·
-Rename · Change · Set confidence · Stop remembering
+Rename · Change · Set confidence · Stop remembering · Undo last
 
-The chat rail can search conversation titles and message text.
+Undo last supersedes the relationships from the previous extract. Entities stay.
+
+The chat rail can search, pin, archive, and export conversations as Markdown.
+You can import a local `.txt` / `.md` / `.json` file you pick yourself.
 
 Forgetting a preference or a “learning X” fact **supersedes** it. It does not
 silently delete history.
@@ -10754,8 +11204,9 @@ Keyword + semantic + graph + recency + confidence + active/superseded + bounded
 multi-hop. Short names (`Go`, `C#`, `AI`) are searchable. Direct questions
 such as “Where do I live?”, “What technology does the game engine use?”,
 “Who uses Bevy?”, “When did I start learning Rust?”, “What did I stop?”,
-and “What changed this week?” read the graph first. If there is no evidence,
-the answer is UNKNOWN. Ollama replies that invent names are dropped.
+“What changed this week?”, “What do I know?”, and “How many projects do I have?”
+read the graph first. If there is no evidence, the answer is UNKNOWN. Ollama
+replies that invent names are dropped.
 
 ---
 
@@ -10783,6 +11234,7 @@ The entity panel lists near-duplicates so you can merge them yourself.
 - Reset requires confirmation
 - Restore a named local backup (creates a safety snapshot first)
 - Paste notes (plain text / markdown paragraphs) to extract memories
+- User-picked local text/markdown/JSON file ingest (never scans your disk)
 
 ---
 
@@ -10888,11 +11340,18 @@ The database is the source of truth.
 - Near-duplicate suggestions on the entity panel
 - “Who uses X?” and “When did I start …?” read stored dates/facts
 - Non-stream RAG also drops ungrounded Ollama replies
+- Undo last extract (supersede, never delete history)
+- Conversation pin / archive / markdown export
+- User-picked local .txt/.md/.json ingest
+- Entity alias editor; unlinked-entity filter; duplicate finder
+- “What do I know?” and “How many …?” grounded recaps
+- Memory text search; real favicon from the EXE icon
 
 ## Next (optional)
 
-- Explicit user-initiated binary file ingest
+- Explicit user-initiated binary/PDF ingest (needs extra parsers)
 - Code-signed Windows EXE (needs a certificate on a Windows machine)
+- Conversation-level summaries that keep every original message
 
 ## Non-goals
 
@@ -11744,6 +12203,8 @@ def test_frontend_served(client):
     assert 'id="gf-around-me"' in html
     assert 'id="graph-to-me"' in html
     assert 'id="browse-sort"' in html
+    assert 'id="chat-undo"' in html
+    assert 'id="import-file"' in html
 
 
 def test_core_loop_chat_memory_graph_search_rag(client):
@@ -12089,7 +12550,7 @@ def test_import_notes_extracts_paragraphs(client):
 
 def test_health_reports_version(client):
     h = client.get("/api/health").json()
-    assert h.get("version") == "2.5.0"
+    assert h.get("version") == "2.6.0"
     assert h.get("db_ok") is True
     assert "auto_backup" in h
 
@@ -12175,6 +12636,90 @@ def test_entity_detail_includes_similar(client):
     d = client.get(f"/api/entities/{rust['id']}").json()
     assert "similar" in d
     assert isinstance(d["similar"], list)
+
+
+def test_undo_last_extract_supersedes(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    rust = store.find_entity_by_name("Rust")
+    assert rust is not None
+    r = client.post("/api/undo").json()
+    assert r["ok"] is True
+    assert r["undone"] >= 1
+    uid = store.ensure_user_entity()
+    rels = [x for x in store.all_relationships()
+            if x["source_id"] == uid and x["target_id"] == rust["id"]
+            and x["relation"] == "learning"]
+    assert rels and rels[0]["status"] == "superseded"
+    again = client.post("/api/undo").json()
+    assert again["ok"] is False
+
+
+def test_conversation_pin_and_archive(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    convs = client.get("/api/conversations").json()
+    cid = convs[0]["id"]
+    r = client.patch(f"/api/conversations/{cid}", json={"pinned": True})
+    assert r.status_code == 200
+    pinned = client.get("/api/conversations").json()
+    assert pinned[0]["id"] == cid
+    assert pinned[0]["pinned"] == 1
+    client.patch(f"/api/conversations/{cid}", json={"archived": True})
+    hidden = client.get("/api/conversations").json()
+    assert all(c["id"] != cid for c in hidden)
+    shown = client.get("/api/conversations", params={"archived": "1"}).json()
+    assert any(c["id"] == cid for c in shown)
+
+
+def test_import_file_notes(client):
+    r = client.post("/api/import/file", json={
+        "filename": "notes.md",
+        "text": "I am learning Python.\n\nI live in Berlin.",
+    })
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    names = {e["name"] for e in client.get("/api/entities").json()}
+    assert "Python" in names or "Berlin" in names
+
+
+def test_entity_aliases_roundtrip(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    rust = next(e for e in client.get("/api/entities").json() if e["name"] == "Rust")
+    r = client.patch(f"/api/entities/{rust['id']}", json={"aliases": ["Rustlang", "Rust Lang"]})
+    assert r.status_code == 200
+    d = client.get(f"/api/entities/{rust['id']}").json()
+    assert "Rustlang" in d["entity"]["aliases"]
+
+
+def test_memories_text_search(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    hits = client.get("/api/memories", params={"q": "Rust"}).json()
+    assert any("Rust" in m["text"] for m in hits)
+    none = client.get("/api/memories", params={"q": "zzzz-no-memory"}).json()
+    assert none == []
+
+
+def test_entities_orphans_filter(client):
+    from backend import store
+    store.create_entity("Lonely Island", "concept")
+    rows = client.get("/api/entities", params={"orphans": True}).json()
+    names = {e["name"] for e in rows}
+    assert "Lonely Island" in names
+    assert "User" not in names
+
+
+def test_conversation_export_markdown(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    cid = client.get("/api/conversations").json()[0]["id"]
+    r = client.get(f"/api/conversations/{cid}/export")
+    assert r.status_code == 200
+    assert "learning Rust" in r.text
+    assert "text/markdown" in r.headers.get("content-type", "")
+
+
+def test_favicon_served(client):
+    r = client.get("/favicon.png")
+    assert r.status_code == 200
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 def test_chat_empty_and_huge_payload(client):
@@ -12488,6 +13033,9 @@ def test_remember_command_recognized():
     assert not commands.is_command("This is important to me")
     assert commands.is_command("Important Rust")
     assert commands.is_command("Unimportant Rust")
+    assert commands.is_command("Undo last")
+    assert commands.is_command("scratch that")
+    assert not commands.is_command("that was wrong of me to skip Rust")
 
 
 def test_forget_supersedes_learning():
@@ -12618,6 +13166,34 @@ def test_forget_live_in_supersedes():
     )
     assert rels and rels[0]["status"] == "superseded"
     assert store.entity_row(berlin) is not None
+
+
+def test_undo_last_command():
+    from backend import extract
+    extract.extract("I am learning Go")
+    # Simulate the chat recorder.
+    store.record_last_extract({
+        "cid": 1,
+        "msg_id": None,
+        "extract": {
+            "entities": [],
+            "relationships": [{
+                "source": store.ensure_user_entity(),
+                "target": store.find_entity_by_name("Go")["id"],
+                "relation": "learning",
+                "new": True,
+            }],
+        },
+    })
+    r = commands.handle_command("Undo last")
+    assert r["ok"] is True
+    uid = store.ensure_user_entity()
+    go = store.find_entity_by_name("Go")
+    rels = db.query(
+        "SELECT * FROM relationships WHERE source_id=? AND target_id=? AND relation='learning'",
+        (uid, go["id"]),
+    )
+    assert rels and rels[0]["status"] == "superseded"
 
 
 def test_stop_remembering_forgets_entity():
@@ -13205,6 +13781,11 @@ def test_entity_browser_and_palette_markup():
     assert 'id="gf-around-me"' in html
     assert 'id="graph-to-me"' in html
     assert 'id="browse-sort"' in html
+    assert 'id="chat-undo"' in html
+    assert 'id="import-file"' in html
+    assert 'id="browse-orphans"' in html
+    assert 'id="mem-q"' in html
+    assert 'id="conv-archived"' in html
     assert "function loadBrowse" in js
     assert "function formatImportReport" in js
     assert "/graph?focus=" in js
@@ -13711,6 +14292,8 @@ def test_migration_v2_to_v3(monkeypatch, tmp_path):
     # user_version bumped.
     ver = conn.execute("PRAGMA user_version").fetchone()[0]
     assert ver == db.SCHEMA_VERSION
+    conv_cols = {r[1] for r in conn.execute("PRAGMA table_info(conversations)")}
+    assert "pinned" in conv_cols and "archived" in conv_cols
     conn.close()
 
 
@@ -14050,6 +14633,22 @@ def test_when_did_i_start_learning():
     assert a["status"] == "known"
     assert "Rust" in a["text"]
     assert "stored" in a["text"].lower()
+
+
+def test_what_do_i_know_overview():
+    extract.extract("I am learning Python")
+    extract.extract("I live in Berlin")
+    a = search.answer("What do I know?")
+    assert a["status"] == "known"
+    assert "Python" in a["text"]
+    assert "Berlin" in a["text"]
+
+
+def test_how_many_projects():
+    extract.extract("My new project Game Engine uses Bevy")
+    a = search.answer("How many projects do I have?")
+    assert a["status"] == "known"
+    assert "1" in a["text"]
 
 
 def test_compose_answer_rejects_ungrounded(monkeypatch):

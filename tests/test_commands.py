@@ -19,6 +19,9 @@ def test_remember_command_recognized():
     assert not commands.is_command("This is important to me")
     assert commands.is_command("Important Rust")
     assert commands.is_command("Unimportant Rust")
+    assert commands.is_command("Undo last")
+    assert commands.is_command("scratch that")
+    assert not commands.is_command("that was wrong of me to skip Rust")
 
 
 def test_forget_supersedes_learning():
@@ -149,6 +152,34 @@ def test_forget_live_in_supersedes():
     )
     assert rels and rels[0]["status"] == "superseded"
     assert store.entity_row(berlin) is not None
+
+
+def test_undo_last_command():
+    from backend import extract
+    extract.extract("I am learning Go")
+    # Simulate the chat recorder.
+    store.record_last_extract({
+        "cid": 1,
+        "msg_id": None,
+        "extract": {
+            "entities": [],
+            "relationships": [{
+                "source": store.ensure_user_entity(),
+                "target": store.find_entity_by_name("Go")["id"],
+                "relation": "learning",
+                "new": True,
+            }],
+        },
+    })
+    r = commands.handle_command("Undo last")
+    assert r["ok"] is True
+    uid = store.ensure_user_entity()
+    go = store.find_entity_by_name("Go")
+    rels = db.query(
+        "SELECT * FROM relationships WHERE source_id=? AND target_id=? AND relation='learning'",
+        (uid, go["id"]),
+    )
+    assert rels and rels[0]["status"] == "superseded"
 
 
 def test_stop_remembering_forgets_entity():

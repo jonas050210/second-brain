@@ -437,6 +437,8 @@ def test_frontend_served(client):
     assert 'id="gf-around-me"' in html
     assert 'id="graph-to-me"' in html
     assert 'id="browse-sort"' in html
+    assert 'id="chat-undo"' in html
+    assert 'id="import-file"' in html
 
 
 def test_core_loop_chat_memory_graph_search_rag(client):

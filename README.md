@@ -169,9 +169,12 @@ message, and timestamps. Duplicates merge. Exclusive facts (`prefers`,
 Commands (deterministic, always hit SQLite):
 
 Remember · Forget · Remove · Pin · Unpin · Important · Unimportant · Merge ·
-Rename · Change · Set confidence · Stop remembering
+Rename · Change · Set confidence · Stop remembering · Undo last
 
-The chat rail can search conversation titles and message text.
+Undo last supersedes the relationships from the previous extract. Entities stay.
+
+The chat rail can search, pin, archive, and export conversations as Markdown.
+You can import a local `.txt` / `.md` / `.json` file you pick yourself.
 
 Forgetting a preference or a “learning X” fact **supersedes** it. It does not
 silently delete history.
@@ -184,8 +187,9 @@ Keyword + semantic + graph + recency + confidence + active/superseded + bounded
 multi-hop. Short names (`Go`, `C#`, `AI`) are searchable. Direct questions
 such as “Where do I live?”, “What technology does the game engine use?”,
 “Who uses Bevy?”, “When did I start learning Rust?”, “What did I stop?”,
-and “What changed this week?” read the graph first. If there is no evidence,
-the answer is UNKNOWN. Ollama replies that invent names are dropped.
+“What changed this week?”, “What do I know?”, and “How many projects do I have?”
+read the graph first. If there is no evidence, the answer is UNKNOWN. Ollama
+replies that invent names are dropped.
 
 ---
 
@@ -213,6 +217,7 @@ The entity panel lists near-duplicates so you can merge them yourself.
 - Reset requires confirmation
 - Restore a named local backup (creates a safety snapshot first)
 - Paste notes (plain text / markdown paragraphs) to extract memories
+- User-picked local text/markdown/JSON file ingest (never scans your disk)
 
 ---
 

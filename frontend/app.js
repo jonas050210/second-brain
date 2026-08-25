@@ -437,6 +437,15 @@ $("#chat-input").addEventListener("input", (e) => {
   e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px";
 });
 
+if ($("#chat-undo")) {
+  $("#chat-undo").addEventListener("click", async () => {
+    try {
+      const r = await api("/undo", { method: "POST" });
+      toast(r.reply || (r.ok ? "Undone" : (r.error || "Nothing to undo")));
+      if (r.ok) { loadDashboard(); buildGraph(); loadMemory(); }
+    } catch (err) { toast(err.message); }
+  });
+}
 $("#chat-new").addEventListener("click", async () => {
   const r = await api("/conversations/new", { method: "POST" });
   currentConversationId = r.conversation_id;
@@ -451,27 +460,59 @@ async function loadConversations() {
   const list = $("#conv-list");
   if (!list) return;
   const q = ($("#conv-search") && $("#conv-search").value.trim()) || "";
+  const showArchived = $("#conv-archived") && $("#conv-archived").checked;
   try {
-    const convs = await api("/conversations" + (q ? ("?q=" + encodeURIComponent(q)) : ""));
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (showArchived) params.set("archived", "1");
+    const convs = await api("/conversations" + (params.toString() ? ("?" + params.toString()) : ""));
     if (!convs.length) {
       list.innerHTML = `<p class="muted">${q ? "No conversations match." : "No conversations yet."}</p>`;
       return;
     }
     list.innerHTML = convs.map((c) => `
-      <div class="conv-item ${c.id === currentConversationId ? "active" : ""}" data-id="${c.id}">
-        <div class="conv-title" data-id="${c.id}" title="Double-click to rename">${esc(c.title || "(untitled)")}</div>
+      <div class="conv-item ${c.id === currentConversationId ? "active" : ""} ${c.pinned ? "pinned" : ""} ${c.archived ? "archived" : ""}" data-id="${c.id}">
+        <div class="conv-title" data-id="${c.id}" title="Double-click to rename">${c.pinned ? "★ " : ""}${esc(c.title || "(untitled)")}</div>
         <div class="conv-preview">${esc(c.preview || "")}</div>
+        <button class="rel-del conv-pin" data-id="${c.id}" title="${c.pinned ? "Unpin" : "Pin"}">${c.pinned ? "★" : "☆"}</button>
+        <button class="rel-del conv-arch" data-id="${c.id}" title="${c.archived ? "Unarchive" : "Archive"}">${c.archived ? "Unarch" : "Arch"}</button>
+        <button class="rel-del conv-export" data-id="${c.id}" title="Export markdown">↓</button>
         <button class="rel-del conv-del" data-id="${c.id}" title="Delete conversation">✕</button>
       </div>`).join("");
     list.querySelectorAll(".conv-item").forEach((el) =>
       el.addEventListener("click", (ev) => {
-        if (ev.target.closest(".conv-del") || ev.target.closest(".conv-title")) return;
+        if (ev.target.closest(".rel-del") || ev.target.closest(".conv-title")) return;
         openConversation(Number(el.dataset.id));
       }));
     list.querySelectorAll(".conv-title").forEach((el) =>
       el.addEventListener("dblclick", (ev) => {
         ev.stopPropagation();
         renameConversation(Number(el.dataset.id), el);
+      }));
+    list.querySelectorAll(".conv-pin").forEach((btn) =>
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const row = convs.find((c) => c.id === Number(btn.dataset.id));
+        await api("/conversations/" + btn.dataset.id, {
+          method: "PATCH", body: JSON.stringify({ pinned: !(row && row.pinned) }),
+        });
+        loadConversations();
+      }));
+    list.querySelectorAll(".conv-arch").forEach((btn) =>
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const row = convs.find((c) => c.id === Number(btn.dataset.id));
+        await api("/conversations/" + btn.dataset.id, {
+          method: "PATCH", body: JSON.stringify({ archived: !(row && row.archived) }),
+        });
+        loadConversations();
+      }));
+    list.querySelectorAll(".conv-export").forEach((btn) =>
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const r = await fetch(API + "/conversations/" + btn.dataset.id + "/export");
+        downloadBlob(await r.text(), "conversation-" + btn.dataset.id + ".md", "text/markdown");
+        toast("Conversation exported");
       }));
     list.querySelectorAll(".conv-del").forEach((btn) =>
       btn.addEventListener("click", async (ev) => {
@@ -719,6 +760,7 @@ async function loadBrowse() {
   if ($("#browse-important") && $("#browse-important").checked) params.set("important", "true");
   const sort = $("#browse-sort") && $("#browse-sort").value;
   if (sort && sort !== "name") params.set("sort", sort);
+  if ($("#browse-orphans") && $("#browse-orphans").checked) params.set("orphans", "true");
   const ents = await api("/entities?" + params.toString());
   list.innerHTML = ents.length ? ents.map((e) => `
     <div class="browse-row" data-id="${e.id}">
@@ -921,6 +963,8 @@ async function loadMemory() {
   if (kind) params.set("kind", kind);
   if (date) params.set("date", date);
   if (entityQ) params.set("entity", entityQ);
+  const mq = $("#mem-q") && $("#mem-q").value.trim();
+  if (mq) params.set("q", mq);
   const mems = await api("/memories?" + params.toString());
   const byDay = {};
   mems.forEach((m) => {
@@ -956,6 +1000,7 @@ $("#mem-date").addEventListener("change", loadMemory);
 $("#mem-entity").addEventListener("keydown", (e) => { if (e.key === "Enter") loadMemory(); });
 $("#mem-clear").addEventListener("click", () => {
   $("#mem-kind").value = ""; $("#mem-entity").value = ""; $("#mem-date").value = "";
+  if ($("#mem-q")) $("#mem-q").value = "";
   loadMemory();
 });
 
@@ -1102,6 +1147,11 @@ async function loadEntity(id) {
     <div class="entity-sec">
       <h3>Details</h3>
       <div class="meta-kv">Aliases: <b>${aliases}</b></div>
+      <div class="alias-edit">
+        ${(e.aliases || []).map((a) => `<span class="remembered-chip alias-chip" data-alias="${esc(a)}">${esc(a)} <button class="rel-del alias-del" data-alias="${esc(a)}" title="Remove alias">✕</button></span>`).join("")}
+        <input class="input" id="alias-add" placeholder="Add alias" />
+        <button class="btn-ghost" id="alias-add-btn">Add</button>
+      </div>
       <div class="meta-kv">Embedding: <b>${e.embedding ? "stored" : "none"}</b></div>
       <div class="meta-kv">Created: <b>${fmtDay(e.created_at)} ${fmtTime(e.created_at)}</b></div>
       <div class="meta-kv">Updated: <b>${fmtDay(e.updated_at)} ${fmtTime(e.updated_at)}</b></div>
@@ -1227,6 +1277,23 @@ async function loadEntity(id) {
       toast("Relationship deleted");
       loadEntity(id); buildGraph();
     }));
+  const saveAliases = async (next) => {
+    await api("/entities/" + id, { method: "PATCH", body: JSON.stringify({ aliases: next }) });
+    loadEntity(id);
+  };
+  $$("#entity-inner .alias-del").forEach((btn) =>
+    btn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      const drop = btn.dataset.alias;
+      saveAliases((e.aliases || []).filter((a) => a !== drop));
+    }));
+  const addAliasBtn = $("#alias-add-btn");
+  if (addAliasBtn) addAliasBtn.addEventListener("click", () => {
+    const name = (($("#alias-add") && $("#alias-add").value) || "").trim();
+    if (!name) return;
+    const next = (e.aliases || []).concat([name]);
+    saveAliases(next);
+  });
   $("#act-edit").addEventListener("click", () => $("#entity-edit-sec").style.display = "block");
   $("#edit-cancel").addEventListener("click", () => $("#entity-edit-sec").style.display = "none");
   $("#edit-save").addEventListener("click", async () => {
@@ -1465,6 +1532,24 @@ $("#import-replace").addEventListener("click", async () => {
   } catch (e) { $("#import-status").textContent = "Error: " + e.message; }
 });
 
+if ($("#import-file")) {
+  $("#import-file").addEventListener("change", async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const r = await api("/import/file", {
+        method: "POST",
+        body: JSON.stringify({ filename: file.name, text }),
+      });
+      $("#import-status").textContent = r.ok
+        ? `Imported ${file.name}` + (r.chunks != null ? ` (${r.chunks} notes, ${r.remembered || 0} memories).` : ".")
+        : "Error: " + (r.error || "failed");
+      if (r.ok) { loadDashboard(); buildGraph(); loadMemory(); loadConversations(); }
+    } catch (e) { $("#import-status").textContent = "Error: " + e.message; }
+    ev.target.value = "";
+  });
+}
 if ($("#import-notes-btn")) {
   $("#import-notes-btn").addEventListener("click", async () => {
     const text = ($("#import-notes") && $("#import-notes").value || "").trim();
@@ -1611,6 +1696,32 @@ if ($("#browse-type")) $("#browse-type").addEventListener("change", loadBrowse);
 if ($("#browse-pinned")) $("#browse-pinned").addEventListener("change", loadBrowse);
 if ($("#browse-important")) $("#browse-important").addEventListener("change", loadBrowse);
 if ($("#browse-sort")) $("#browse-sort").addEventListener("change", loadBrowse);
+if ($("#browse-orphans")) $("#browse-orphans").addEventListener("change", loadBrowse);
+if ($("#browse-dupes")) $("#browse-dupes").addEventListener("click", showDuplicatePairs);
+if ($("#conv-archived")) $("#conv-archived").addEventListener("change", loadConversations);
+if ($("#mem-q")) $("#mem-q").addEventListener("keydown", (e) => { if (e.key === "Enter") loadMemory(); });
+
+async function showDuplicatePairs() {
+  try {
+    const pairs = await api("/entities/duplicates");
+    if (!pairs.length) { toast("No near-duplicates found"); return; }
+    const modal = document.createElement("div");
+    modal.className = "modal";
+    modal.innerHTML = `<div class="modal-card"><h3>Possible duplicates</h3>
+      <p class="muted">Embedding neighbors. Merge only if they are the same thing.</p>
+      <div class="modal-list">${pairs.map((p) => `
+        <div class="modal-opt" data-a="${p.a.id}" data-b="${p.b.id}">
+          <span>${esc(p.a.name)}</span> · <span>${esc(p.b.name)}</span>
+          <span class="conf">${Math.round((p.score || 0) * 100)}%</span>
+        </div>`).join("")}</div>
+      <div style="margin-top:12px;text-align:right"><button class="btn-ghost" id="dup-close">Close</button></div></div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+    modal.querySelector("#dup-close").addEventListener("click", () => modal.remove());
+    modal.querySelectorAll(".modal-opt").forEach((el) =>
+      el.addEventListener("click", () => { modal.remove(); openEntity(el.dataset.a); }));
+  } catch (err) { toast(err.message); }
+}
 
 document.addEventListener("keydown", (e) => {
   const tag = (e.target && e.target.tagName) || "";

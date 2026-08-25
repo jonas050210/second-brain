@@ -200,6 +200,22 @@ def test_when_did_i_start_learning():
     assert "stored" in a["text"].lower()
 
 
+def test_what_do_i_know_overview():
+    extract.extract("I am learning Python")
+    extract.extract("I live in Berlin")
+    a = search.answer("What do I know?")
+    assert a["status"] == "known"
+    assert "Python" in a["text"]
+    assert "Berlin" in a["text"]
+
+
+def test_how_many_projects():
+    extract.extract("My new project Game Engine uses Bevy")
+    a = search.answer("How many projects do I have?")
+    assert a["status"] == "known"
+    assert "1" in a["text"]
+
+
 def test_compose_answer_rejects_ungrounded(monkeypatch):
     extract.extract("I am learning Python")
     res = search.search("What am I learning?")

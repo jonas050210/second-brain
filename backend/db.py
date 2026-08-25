@@ -17,7 +17,7 @@ from . import config
 
 _write_lock = threading.Lock()
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS entities (
@@ -59,7 +59,9 @@ CREATE TABLE IF NOT EXISTS conversations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     title       TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
+    updated_at  TEXT NOT NULL,
+    pinned      INTEGER NOT NULL DEFAULT 0,
+    archived    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -106,6 +108,10 @@ MIGRATIONS = {
     2: [],
     3: [
         ("memories", "meta", "TEXT NOT NULL DEFAULT '{}'"),
+    ],
+    4: [
+        ("conversations", "pinned", "INTEGER NOT NULL DEFAULT 0"),
+        ("conversations", "archived", "INTEGER NOT NULL DEFAULT 0"),
     ],
 }
 
