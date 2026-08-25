@@ -154,6 +154,28 @@ def build_updates(result):
     return result.get("entity_updates", []) + result.get("relationship_updates", [])
 
 
+def _message_meta(row):
+    """Read message metadata defensively; old/corrupt rows must not break UI loads."""
+    try:
+        value = json.loads(row.get("meta") or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _conversation_id_for_request(conversation_id):
+    """Resolve an optional chat conversation without creating orphan messages."""
+    if conversation_id is None:
+        return store.current_conversation_id()
+    try:
+        cid = int(conversation_id)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "conversation_id must be an integer")
+    if cid <= 0 or not store.conversation_row(cid):
+        raise HTTPException(404, "conversation not found")
+    return cid
+
+
 # --------------------------------------------------------------------------
 # API: health / models
 # --------------------------------------------------------------------------
@@ -238,7 +260,7 @@ def prepare_turn(content, conversation_id=None):
         turn["content"] = content
         turn["original"] = content
 
-    cid = conversation_id or store.current_conversation_id()
+    cid = _conversation_id_for_request(conversation_id)
     turn["cid"] = cid
     msg_id = store.add_message("user", content, conversation_id=cid,
                                embedding=store.embed_text(content))
@@ -376,10 +398,19 @@ def finalize_turn(turn, reply):
         out["status"] = turn.get("status") or ""
         out["sources"] = turn.get("sources") or []
     if turn["kind"] == "extract":
-        store.record_last_extract(turn)
-    if turn["kind"] in ("extract", "command") and (
-        out.get("remembered") or out.get("updates") or out.get("is_command")
-    ):
+        extracted = turn.get("extract") or {}
+        # Do not make a no-op reassertion appear undoable. The undo stack is
+        # only for extracts that actually introduced a relationship or entity.
+        if any(r.get("new") for r in extracted.get("relationships") or []) \
+                or any(e.get("created") for e in extracted.get("entities") or []):
+            store.record_last_extract(turn)
+    memory_write = (
+        turn["kind"] == "extract"
+        and (out.get("remembered") or out.get("updates"))
+    ) or (
+        turn["kind"] == "command" and turn.get("ok", False)
+    )
+    if memory_write:
         _safe_auto_backup()
     return out
 
@@ -405,7 +436,7 @@ def get_messages():
     rows = store.messages()
     out = []
     for r in rows:
-        meta = json.loads(r.get("meta") or "{}")
+        meta = _message_meta(r)
         out.append({"id": r["id"], "role": r["role"], "content": r["content"],
                     "created_at": r["created_at"], "extracted": r["extracted"],
                     "conversation_id": r.get("conversation_id"),
@@ -514,9 +545,11 @@ def conversation_delete(cid: int):
 
 @app.get("/api/conversations/{cid}/messages")
 def conversation_messages(cid: int):
+    if not store.conversation_row(cid):
+        raise HTTPException(404, "conversation not found")
     out = []
     for m in store.conversation_messages(cid):
-        meta = json.loads(m.get("meta") or "{}")
+        meta = _message_meta(m)
         out.append({"id": m["id"], "role": m["role"], "content": m["content"],
                     "created_at": m["created_at"],
                     "updates": meta.get("updates", []),
@@ -756,7 +789,9 @@ def entity_update(eid: int, body: EntityPatch):
         raise HTTPException(404, "entity not found")
     fields = {}
     if body.name is not None:
-        fields["name"] = body.name
+        if not body.name.strip():
+            raise HTTPException(400, "entity name cannot be empty")
+        fields["name"] = body.name.strip()
     if body.type is not None:
         fields["type"] = store.normalize_type(body.type)
     if body.description is not None:
@@ -779,7 +814,10 @@ def entity_update(eid: int, body: EntityPatch):
             seen.add(key)
             cleaned.append(name)
         fields["aliases"] = cleaned[:20]
-    store.update_entity(eid, **fields)
+    try:
+        store.update_entity(eid, **fields)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return {"ok": True}
 
 
@@ -802,7 +840,10 @@ class MergeIn(BaseModel):
 
 @app.post("/api/entities/merge")
 def entity_merge(body: MergeIn):
-    return store.merge_entities(body.keep_id, body.drop_id)
+    result = store.merge_entities(body.keep_id, body.drop_id)
+    if result.get("error"):
+        raise HTTPException(400, result["error"])
+    return result
 
 
 class RelPatch(BaseModel):
@@ -818,18 +859,25 @@ def rel_update(rid: int, body: RelPatch):
         raise HTTPException(404, "relationship not found")
     fields = {}
     if body.relation is not None:
+        if not body.relation.strip():
+            raise HTTPException(400, "relationship type cannot be empty")
         rel, _swap = store.normalize_relation(body.relation)
         fields["relation"] = rel
     if body.confidence is not None:
         fields["confidence"] = max(0.0, min(1.0, body.confidence))
     if body.status is not None:
+        if body.status not in ("active", "superseded"):
+            raise HTTPException(400, "status must be 'active' or 'superseded'")
         fields["status"] = body.status
-    store.update_relationship(rid, **fields)
+    if not store.update_relationship(rid, **fields):
+        raise HTTPException(400, "no valid relationship fields supplied")
     return {"ok": True}
 
 
 @app.delete("/api/relationships/{rid}")
 def rel_delete(rid: int):
+    if not store.relationship_row(rid):
+        raise HTTPException(404, "relationship not found")
     store.delete_relationship(rid)
     return {"ok": True}
 
@@ -896,7 +944,11 @@ def list_facts(active_only: bool = True, status: str = None, entity_id: int = No
 def memories(limit: int = 200, entity_id: int = None, kind: str = None,
              type: str = None, conversation_id: int = None, date: str = None,
              entity: str = None, q: str = None):
-    rows = store.recent_memories(limit if limit <= 2000 else 2000)
+    try:
+        safe_limit = max(1, min(int(limit), 2000))
+    except (TypeError, ValueError):
+        safe_limit = 200
+    rows = store.recent_memories(safe_limit)
     resolved_eid = entity_id
     if resolved_eid is None and entity:
         hit = store.find_entity_by_name(entity)
@@ -945,14 +997,19 @@ class SearchIn(BaseModel):
 
 @app.post("/api/search")
 def do_search(body: SearchIn):
+    query = (body.query or "").strip()
+    if not query:
+        raise HTTPException(400, "query cannot be empty")
+    if len(query) > config.MAX_CHAT_CHARS:
+        raise HTTPException(400, "query is too long")
     filters = {k: v for k, v in {
         "type": body.type, "min_confidence": body.min_confidence,
         "status": body.status, "pinned": body.pinned, "important": body.important,
         "date_from": body.date_from, "date_to": body.date_to, "source": body.source,
     }.items() if v is not None}
-    res = search.search(body.query, filters=filters)
-    ans = search.answer(body.query, model=effective_llm_model(), filters=filters)
-    return {"query": body.query, **res, "answer": ans["text"], "status": ans["status"],
+    res = search.search(query, filters=filters)
+    ans = search.answer(query, model=effective_llm_model(), filters=filters)
+    return {"query": query, **res, "answer": ans["text"], "status": ans["status"],
             "sources": ans.get("sources", [])}
 
 
@@ -1223,6 +1280,7 @@ def reset(body: Optional[ResetIn] = None):
     for t in ("relationships", "entities", "memories", "messages", "conversations"):
         db.execute(f"DELETE FROM {t}")
     db.set_setting("current_conversation_id", None)
+    store.clear_undo_stack()
     store.ensure_user_entity()
     return {"ok": True}
 
@@ -1294,6 +1352,11 @@ def demo_clear():
 @app.post("/api/chat/stream")
 def chat_stream(body: ChatIn):
     """SSE chat. Extraction/retrieval finish first; the reply then streams."""
+    # Validate before returning StreamingResponse; an HTTPException raised
+    # inside the generator would otherwise become a broken 200 SSE response.
+    if body.conversation_id is not None:
+        _conversation_id_for_request(body.conversation_id)
+
     def generate():
         turn = prepare_turn(body.content, body.conversation_id)
         if turn.get("cid"):

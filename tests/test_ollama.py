@@ -71,3 +71,27 @@ def test_llm_failure_falls_back_to_rules(fake_ollama, monkeypatch):
     assert r["used_fallback"] is True
     names = [e["name"] for e in r["entities"]]
     assert "Python" in names
+
+
+def test_malformed_ollama_responses_are_offline_safe(monkeypatch):
+    class BadResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise ValueError("bad JSON")
+
+    monkeypatch.setattr(ollama.requests, "get", lambda *a, **k: BadResponse())
+    monkeypatch.setattr(ollama.requests, "post", lambda *a, **k: BadResponse())
+    assert ollama.available(force=True) is False
+    assert ollama.list_models() == []
+    assert ollama.embed("nomic-embed-text", "hello") == []
+
+
+def test_malformed_ollama_url_is_offline_safe(monkeypatch):
+    db.set_setting("ollama_base_url", "not-a-url")
+    assert ollama.available(force=True) is False
+    assert ollama.list_models() == []
+    assert ollama.embed("nomic-embed-text", "hello") == []

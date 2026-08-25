@@ -99,6 +99,10 @@ def test_search_endpoint(client):
     assert body["status"] in ("known", "answered", "unknown", "uncertain")
 
 
+def test_search_rejects_empty_query(client):
+    assert client.post("/api/search", json={"query": "   "}).status_code == 400
+
+
 def test_dashboard(client):
     client.post("/api/chat", json={"content": "I am learning Rust"})
     d = client.get("/api/dashboard").json()
@@ -133,12 +137,44 @@ def test_reset(client):
     d = client.get("/api/dashboard").json()
     assert d["entities"] == 1  # only User remains
     assert d["relationships"] == 0
+    assert client.get("/api/health").json()["undo_available"] is False
+    assert client.post("/api/undo").json()["ok"] is False
 
 
 def test_conversations(client):
     client.post("/api/chat", json={"content": "I am learning Rust"})
     convos = client.get("/api/conversations").json()
     assert len(convos) >= 1
+
+
+def test_chat_rejects_unknown_conversation_without_orphaning_message(client):
+    before = len(store.messages())
+    response = client.post("/api/chat", json={
+        "content": "I am learning Rust", "conversation_id": 999999,
+    })
+    assert response.status_code == 404
+    assert len(store.messages()) == before
+
+
+def test_stream_rejects_unknown_conversation_before_opening_sse(client):
+    response = client.post("/api/chat/stream", json={
+        "content": "I am learning Rust", "conversation_id": 999999,
+    })
+    assert response.status_code == 404
+
+
+def test_entity_rename_validation(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    rust = next(e for e in client.get("/api/entities").json() if e["name"] == "Rust")
+    empty = client.patch(f"/api/entities/{rust['id']}", json={"name": "   "})
+    assert empty.status_code == 400
+    duplicate = client.patch(f"/api/entities/{rust['id']}", json={"name": "User"})
+    assert duplicate.status_code == 400
+    assert client.get(f"/api/entities/{rust['id']}").json()["entity"]["name"] == "Rust"
+
+
+def test_unknown_relationship_delete_is_404(client):
+    assert client.delete("/api/relationships/999999").status_code == 404
 
 
 def test_ollama_offline_fallback(client, monkeypatch):

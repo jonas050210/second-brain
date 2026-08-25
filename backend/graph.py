@@ -148,19 +148,27 @@ def graph_view(focus="auto", depth=2, active_only=True):
 
 def shortest_path(source_id, target_id, active_only=True, max_depth=6):
     """BFS shortest path between two entities. Returns list of hops or None."""
+    try:
+        max_depth = max(0, int(max_depth))
+    except (TypeError, ValueError):
+        max_depth = 6
     if source_id == target_id:
         return [{"node": source_id}]
     adj, edges = _load_edges(active_only)
     prev = {source_id: None}  # node -> (prev_node, rel_id, relation, direction)
+    distances = {source_id: 0}
     q = deque([source_id])
     while q:
         cur = q.popleft()
         if cur == target_id:
             break
+        if distances[cur] >= max_depth:
+            continue
         for (other, rid, rel, conf, direction) in adj.get(cur, []):
             if other in prev:
                 continue
             prev[other] = (cur, rid, rel, direction)
+            distances[other] = distances[cur] + 1
             q.append(other)
     if target_id not in prev:
         return None

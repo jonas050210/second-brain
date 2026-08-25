@@ -216,6 +216,16 @@ def test_how_many_projects():
     assert "1" in a["text"]
 
 
+def test_search_filters_apply_to_facts_and_direct_answers():
+    extract.extract("I am learning Python")
+    filtered = search.search("What am I learning?", filters={"type": "project"})
+    assert filtered["facts"] == []
+    answer = search.answer("What am I learning?", filters={"type": "project"})
+    assert answer["status"] == "unknown"
+    high_conf = search.search("What am I learning?", filters={"min_confidence": 0.99})
+    assert high_conf["facts"] == []
+
+
 def test_compose_answer_rejects_ungrounded(monkeypatch):
     extract.extract("I am learning Python")
     res = search.search("What am I learning?")

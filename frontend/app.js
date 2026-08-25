@@ -269,7 +269,7 @@ function appendMessage(role, content, opts = {}) {
 
   const t = document.createElement("div");
   t.className = "msg-time";
-  t.textContent = fmtTime(new Date().toISOString());
+  t.textContent = fmtTime(opts.created_at || new Date().toISOString());
   wrap.appendChild(t);
   $("#chat-messages").appendChild(wrap);
   scrollChat();
@@ -588,9 +588,9 @@ async function openConversation(id) {
   $("#chat-empty").style.display = "";
   const msgs = await api(`/conversations/${id}/messages`);
   msgs.forEach((m) => {
-    if (m.role === "user") appendMessage("user", m.content);
+    if (m.role === "user") appendMessage("user", m.content, { created_at: m.created_at });
     else appendMessage("assistant", m.content, {
-      remembered: m.remembered, kind: m.kind, status: m.status,
+      created_at: m.created_at, remembered: m.remembered, kind: m.kind, status: m.status,
       superseded: m.superseded, sources: m.sources,
     });
   });

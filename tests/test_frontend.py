@@ -94,7 +94,7 @@ def test_graph_updates(page):
     # The graph should render nodes (canvas-based, so check the sub line updates).
     page.wait_for_timeout(1500)
     sub = page.locator("#graph-sub").inner_text()
-    assert "Nebula" or "entities" in sub
+    assert "entities" in sub
 
 
 def test_search_works(page):
@@ -138,6 +138,7 @@ def test_entity_browser_and_palette_markup():
     assert "function runGraphLayout" in js
     assert "function applyRoute" in js
     assert "function sourceChips" in js
+    assert "opts.created_at" in js
     assert "data-mid" in js
     assert "Looks similar" in js
     assert "sources: m.sources" in js

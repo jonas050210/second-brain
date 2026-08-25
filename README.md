@@ -188,12 +188,13 @@ silently delete history.
 ## Search / RAG
 
 Keyword + semantic + graph + recency + confidence + active/superseded + bounded
-multi-hop. Short names (`Go`, `C#`, `AI`) are searchable. Direct questions
-such as “Where do I live?”, “What technology does the game engine use?”,
-“Who uses Bevy?”, “When did I start learning Rust?”, “What did I stop?”,
-“What changed this week?”, “What do I know?”, and “How many projects do I have?”
-read the graph first. If there is no evidence, the answer is UNKNOWN. Ollama
-replies that invent names are dropped.
+multi-hop. Short names (`Go`, `C#`, `AI`) are searchable. The type, confidence,
+status, flag, date, and source filters apply to facts as well as entity results.
+Direct questions such as “Where do I live?”, “What technology does the game
+engine use?”, “Who uses Bevy?”, “When did I start learning Rust?”, “What did I
+stop?”, “What changed this week?”, “What do I know?”, and “How many projects do
+I have?” read the graph first. If there is no evidence, the answer is UNKNOWN.
+Ollama replies that invent names are dropped.
 
 ---
 
@@ -214,6 +215,8 @@ The entity panel lists near-duplicates so you can merge them yourself.
 - JSON + Markdown export
 - Merge import or replace import (replace requires `confirm=true`)
 - Merge import reports exclusive-fact conflicts and skipped relationships
+- Imports validate the complete payload before writing; source messages,
+  conversations, flags, timestamps, and source links are remapped on import
 - User relationships are remapped
 - Local backups under `data/backups/` (SQLite + JSON + MD)
 - Optional automatic local backups (default every 24 hours; never deletes)
@@ -223,7 +226,10 @@ The entity panel lists near-duplicates so you can merge them yourself.
 - Paste notes (plain text / markdown paragraphs) to extract memories
 - User-picked local text/markdown/JSON file ingest (never scans your disk)
 - Conversation recap (Σ / “Summarize this conversation”) — originals stay
-- Undo stack of the last three extracts (supersede, never wipe the brain)
+- Undo stack of the last three extracts (supersede, never wipe the brain); reset
+  and replace clear stale undo metadata
+- Merge keeps both sides of a duplicate relationship and combines their
+  confidence instead of dropping the link
 
 ---
 
@@ -260,6 +266,8 @@ second-brain/
 
 - Single-user, local only
 - Offline extractor is intentionally small; hard phrasing is better with Ollama
+- Ollama is optional and fail-closed: unavailable or malformed model responses
+  use the deterministic local fallback
 - SSE chat extracts first, then streams the reply token-by-token when Ollama is up
 - Playwright browser tests skip if Chromium is not installed
 - Learning several things at once is allowed unless you stop or switch
