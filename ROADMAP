@@ -61,6 +61,8 @@ The database is the source of truth. Current version: **2.7.0**.
 - Optional Ollama failures, malformed responses, and corrupt embeddings fail closed to offline behavior
 - Search filters apply consistently to facts and direct answers
 - Chat history restores stored message times; unknown conversation ids do not create orphan messages
+- GUI polish: source-linked dashboard memories, single-click chat opening, accessible mobile navigation, and isolated loading/error states
+- Race-safe GUI searches and panel loads so stale responses do not overwrite newer selections
 
 ## Next (optional)
 

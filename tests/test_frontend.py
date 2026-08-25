@@ -116,6 +116,8 @@ def test_entity_browser_and_palette_markup():
     html = open(os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html"), encoding="utf-8").read()
     js = open(os.path.join(os.path.dirname(__file__), "..", "frontend", "app.js"), encoding="utf-8").read()
     assert 'id="view-browse"' in html
+    assert 'aria-label="Dashboard"' in html
+    assert 'role="status"' in html
     assert 'id="palette"' in html
     assert 'id="privacy-info"' in html
     assert 'id="backup-list"' in html
@@ -140,6 +142,11 @@ def test_entity_browser_and_palette_markup():
     assert "function sourceChips" in js
     assert "opts.created_at" in js
     assert "data-mid" in js
+    assert "Open source message" in js
+    assert "runViewLoad(loadBrowse, \"entities\")" in js
+    assert "if (ev.target.closest(\".rel-del\")) return;" in js
+    assert "let paletteRequest = 0;" in js
+    assert "if (request !== conversationRequest) return;" in js
     assert "Looks similar" in js
     assert "sources: m.sources" in js
     assert "function restore" not in js or "/backup/restore" in js

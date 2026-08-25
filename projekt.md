@@ -4,7 +4,7 @@ Every first-party file is inlined below, including tests, launcher,
 and the vendor Cytoscape build. This is documentation, not a second app.
 Live source of truth remains the individual files.
 
-Generated: 2026-08-25 16:19 UTC
+Generated: 2026-08-25 16:52 UTC
 Version: 2.7.0
 Files archived: 60
 
@@ -148,9 +148,9 @@ Default models: `qwen3:0.6b`, `nomic-embed-text`. Offline must not crash.
    47216  backend/search.py
    28800  backend/store.py
     7827  backend/summarize.py
-   77322  frontend/app.js
-   19867  frontend/index.html
-   28790  frontend/style.css
+   80990  frontend/app.js
+   20373  frontend/index.html
+   29709  frontend/style.css
   373304  frontend/vendor/cytoscape.min.js
      222  launcher/__init__.py
     3553  launcher/__main__.py
@@ -163,9 +163,9 @@ Default models: `qwen3:0.6b`, `nomic-embed-text`. Offline must not crash.
     9022  launcher/tray.py
      728  main.py
       91  pytest.ini
-    9544  README.md
+    9766  README.md
      165  requirements.txt
-    3948  ROADMAP
+    4181  ROADMAP
      223  run.py
     2743  secondbrain.spec
     9375  start.py
@@ -177,7 +177,7 @@ Default models: `qwen3:0.6b`, `nomic-embed-text`. Offline must not crash.
     7152  tests/test_commands.py
     6899  tests/test_export.py
    10392  tests/test_extraction.py
-    5830  tests/test_frontend.py
+    6176  tests/test_frontend.py
     4805  tests/test_graph.py
     8594  tests/test_launcher.py
     3507  tests/test_migration.py
@@ -7508,6 +7508,13 @@ function toast(text) {
   t._timer = setTimeout(() => t.classList.remove("show"), 2600);
 }
 
+window.addEventListener("unhandledrejection", (event) => {
+  event.preventDefault();
+  const reason = event.reason;
+  console.error("Second Brain: unhandled request error", reason);
+  toast(reason && reason.message ? reason.message : "Something went wrong. Try again.");
+});
+
 function badge(type) {
   return `<span class="badge ${esc(type)}">${esc(type)}</span>`;
 }
@@ -7552,11 +7559,21 @@ function showView(name, opts = {}) {
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
   if (!opts.keepHash) setHash(name);
   if (name === "graph") requestAnimationFrame(() => { if (cy) cy.fit(undefined, 30); });
-  if (name === "dashboard") loadDashboard();
-  if (name === "memory") loadMemory();
-  if (name === "browse") loadBrowse();
+  if (name === "dashboard") runViewLoad(loadDashboard, "dashboard");
+  if (name === "memory") runViewLoad(loadMemory, "memory");
+  if (name === "browse") runViewLoad(loadBrowse, "entities");
   if (name === "chat") scrollChat();
-  if (name === "settings") { loadSettings(); loadBackupStatus(); }
+  if (name === "settings") {
+    runViewLoad(loadSettings, "settings");
+    runViewLoad(loadBackupStatus, "backups");
+  }
+}
+
+function runViewLoad(loader, label) {
+  Promise.resolve(loader()).catch((err) => {
+    console.error(`Second Brain: failed to load ${label}`, err);
+    toast(`Couldn't load ${label}. ${err.message || "Try again."}`);
+  });
 }
 
 function applyRoute() {
@@ -7595,7 +7612,14 @@ async function refreshStatus() {
       txt.textContent = "Ollama offline (fallback)";
     }
     $("#model-line").textContent = `LLM: ${h.llm_model} · EMB: ${h.embedding_model}`;
-  } catch {}
+  } catch (err) {
+    const dot = $(".status-dot");
+    const txt = $(".status-text");
+    if (dot) dot.className = "status-dot off";
+    if (txt) txt.textContent = "Backend unavailable";
+    const modelLine = $("#model-line");
+    if (modelLine) modelLine.textContent = "Retrying…";
+  }
 }
 
 /* ==========================================================================
@@ -7633,12 +7657,20 @@ async function loadDashboard() {
 
   $("#recent-memories").innerHTML = d.recent.length
     ? d.recent.map((m) => `
-        <div class="mem-item">
+        <div class="mem-item"${m.message_id ? ` data-mid="${m.message_id}" title="Open source message"` : ""}>
           <span class="mem-ico">${m.kind === "entity" ? "◆" : m.kind === "superseded" ? "⤫" : "⇄"}</span>
           <span class="mem-text">${esc(m.text)}</span>
           <span class="mem-time">${fmtTime(m.created_at)}</span>
         </div>`).join("")
     : `<p class="muted">No memories yet — start chatting.</p>`;
+  $$("#recent-memories .mem-item[data-mid]").forEach((el) => {
+    el.style.cursor = "pointer";
+    el.addEventListener("click", async () => {
+      try {
+        openSource(await api("/messages/" + el.dataset.mid));
+      } catch (err) { toast(err.message); }
+    });
+  });
 
   $("#top-entities").innerHTML = d.most_connected.length
     ? d.most_connected.map((e) => `
@@ -7660,6 +7692,10 @@ async function loadDashboard() {
    Chat
    ========================================================================== */
 let currentConversationId = null;
+let conversationRequest = 0;
+let browseRequest = 0;
+let memoryRequest = 0;
+let searchRequest = 0;
 
 function scrollChat() {
   const s = $("#chat-scroll");
@@ -7927,6 +7963,7 @@ $("#chat-new").addEventListener("click", async () => {
 async function loadConversations() {
   const list = $("#conv-list");
   if (!list) return;
+  const request = ++conversationRequest;
   const q = ($("#conv-search") && $("#conv-search").value.trim()) || "";
   const showArchived = $("#conv-archived") && $("#conv-archived").checked;
   try {
@@ -7934,6 +7971,7 @@ async function loadConversations() {
     if (q) params.set("q", q);
     if (showArchived) params.set("archived", "1");
     const convs = await api("/conversations" + (params.toString() ? ("?" + params.toString()) : ""));
+    if (request !== conversationRequest) return;
     if (!convs.length) {
       list.innerHTML = `<p class="muted">${q ? "No conversations match." : "No conversations yet."}</p>`;
       return;
@@ -7950,7 +7988,7 @@ async function loadConversations() {
       </div>`).join("");
     list.querySelectorAll(".conv-item").forEach((el) =>
       el.addEventListener("click", (ev) => {
-        if (ev.target.closest(".rel-del") || ev.target.closest(".conv-title")) return;
+        if (ev.target.closest(".rel-del")) return;
         openConversation(Number(el.dataset.id));
       }));
     list.querySelectorAll(".conv-title").forEach((el) =>
@@ -8011,7 +8049,9 @@ async function loadConversations() {
         convs.map((c) => `<option value="${c.id}">${esc(c.title || "Conversation " + c.id)}</option>`).join("");
       src.value = cur;
     }
-  } catch {}
+  } catch (err) {
+    list.innerHTML = `<p class="error-state">Couldn't load conversations.<br><span class="muted">${esc(err.message || "Try again.")}</span></p>`;
+  }
 }
 
 if ($("#conv-search")) {
@@ -8229,6 +8269,7 @@ function populateFilterDropdowns(g) {
 async function loadBrowse() {
   const list = $("#browse-list");
   if (!list) return;
+  const request = ++browseRequest;
   const params = new URLSearchParams();
   const q = $("#browse-q") && $("#browse-q").value.trim();
   const type = $("#browse-type") && $("#browse-type").value;
@@ -8240,6 +8281,7 @@ async function loadBrowse() {
   if (sort && sort !== "name") params.set("sort", sort);
   if ($("#browse-orphans") && $("#browse-orphans").checked) params.set("orphans", "true");
   const ents = await api("/entities?" + params.toString());
+  if (request !== browseRequest) return;
   list.innerHTML = ents.length ? ents.map((e) => `
     <div class="browse-row" data-id="${e.id}">
       <span style="color:${typeColors[e.type] || "#fff"}">●</span>
@@ -8331,7 +8373,7 @@ function applyConnectedFilter() {
   });
 }
 
-$("#graph-apply").addEventListener("click", applyGraphFilters);
+$("#graph-apply").addEventListener("click", () => runViewLoad(applyGraphFilters, "graph filters"));
 if ($("#gf-layout")) $("#gf-layout").addEventListener("change", runGraphLayout);
 if ($("#gf-connected")) $("#gf-connected").addEventListener("change", applyConnectedFilter);
 if ($("#gf-around-me")) {
@@ -8434,6 +8476,7 @@ $("#graph-reset").addEventListener("click", async () => {
    Memory timeline (with filters)
    ========================================================================== */
 async function loadMemory() {
+  const request = ++memoryRequest;
   const kind = $("#mem-kind").value;
   const entityQ = $("#mem-entity").value.trim();
   const date = $("#mem-date").value;
@@ -8444,6 +8487,7 @@ async function loadMemory() {
   const mq = $("#mem-q") && $("#mem-q").value.trim();
   if (mq) params.set("q", mq);
   const mems = await api("/memories?" + params.toString());
+  if (request !== memoryRequest) return;
   const byDay = {};
   mems.forEach((m) => {
     const day = fmtDay(m.created_at);
@@ -8473,13 +8517,15 @@ async function loadMemory() {
   });
 }
 
-$("#mem-kind").addEventListener("change", loadMemory);
-$("#mem-date").addEventListener("change", loadMemory);
-$("#mem-entity").addEventListener("keydown", (e) => { if (e.key === "Enter") loadMemory(); });
+$("#mem-kind").addEventListener("change", () => runViewLoad(loadMemory, "memory"));
+$("#mem-date").addEventListener("change", () => runViewLoad(loadMemory, "memory"));
+$("#mem-entity").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") runViewLoad(loadMemory, "memory");
+});
 $("#mem-clear").addEventListener("click", () => {
   $("#mem-kind").value = ""; $("#mem-entity").value = ""; $("#mem-date").value = "";
   if ($("#mem-q")) $("#mem-q").value = "";
-  loadMemory();
+  runViewLoad(loadMemory, "memory");
 });
 
 /* ==========================================================================
@@ -8492,6 +8538,7 @@ const REASON_LABELS = {
 };
 
 async function doSearch() {
+  const request = ++searchRequest;
   const q = $("#search-input").value.trim();
   if (!q) return;
   const body = { query: q };
@@ -8505,6 +8552,7 @@ async function doSearch() {
   if ($("#sf-source") && $("#sf-source").value) body.source = $("#sf-source").value;
 
   const r = await api("/search", { method: "POST", body: JSON.stringify(body) });
+  if (request !== searchRequest) return;
   const ans = $("#search-answer");
   ans.style.display = "block";
   const stLabel = { answered: "known", known: "known", unknown: "unknown", uncertain: "uncertain" }[r.status] || r.status;
@@ -8549,13 +8597,16 @@ async function doSearch() {
   $$("#search-results .result-entity").forEach((el) =>
     el.addEventListener("click", () => openEntity(el.dataset.id)));
 }
-$("#search-btn").addEventListener("click", doSearch);
-$("#search-input").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
+$("#search-btn").addEventListener("click", () => runViewLoad(doSearch, "search"));
+$("#search-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") runViewLoad(doSearch, "search");
+});
 
 /* ==========================================================================
    Entity slide-over
    ========================================================================== */
 let currentEntity = null;
+let entityRequest = 0;
 
 function openEntity(id) {
   loadEntity(id);
@@ -8589,8 +8640,13 @@ function openSource(source) {
 
 async function loadEntity(id) {
   currentEntity = id;
-  const d = await api("/entities/" + id);
-  const e = d.entity;
+  const request = ++entityRequest;
+  const inner = $("#entity-inner");
+  if (inner) inner.innerHTML = '<p class="loading-state">Loading entity…</p>';
+  try {
+    const d = await api("/entities/" + id);
+    if (request !== entityRequest) return;
+    const e = d.entity;
 
   const relTypes = ["learning","uses","knows","likes","created","interested_in","related_to","wants","works_on","prefers","works_at","lives_in","located_in","member_of"];
   const related = d.related.map((r) => `
@@ -8818,14 +8874,19 @@ async function loadEntity(id) {
     loadEntity(id); buildGraph(); loadDashboard();
   });
   $("#act-merge").addEventListener("click", () => openMerge(id));
-  $("#act-delete").addEventListener("click", async () => {
-    if (!confirm("Delete this entity and its relationships?")) return;
-    try {
-      await api("/entities/" + id, { method: "DELETE" });
-      toast("Entity deleted");
-      closeEntity(); buildGraph(); loadDashboard();
-    } catch (err) { toast(err.message); }
-  });
+    $("#act-delete").addEventListener("click", async () => {
+      if (!confirm("Delete this entity and its relationships?")) return;
+      try {
+        await api("/entities/" + id, { method: "DELETE" });
+        toast("Entity deleted");
+        closeEntity(); buildGraph(); loadDashboard();
+      } catch (err) { toast(err.message); }
+    });
+  } catch (err) {
+    if (request !== entityRequest) return;
+    if (inner) inner.innerHTML = `<p class="error-state">Couldn’t load this entity.<br><span class="muted">${esc(err.message || "Try again.")}</span></p>`;
+    toast(err.message || "Couldn’t load entity");
+  }
 }
 
 function openMerge(dropId) {
@@ -9077,7 +9138,10 @@ async function loadBackupStatus() {
           if (r.ok) { loadDashboard(); buildGraph(); loadMemory(); loadConversations(); loadBrowse(); }
         } catch (e) { toast(e.message); }
       }));
-  } catch {}
+  } catch (err) {
+    const box = $("#backup-list");
+    if (box) box.innerHTML = `<p class="error-state">Couldn't load backups.<br><span class="muted">${esc(err.message || "Try again.")}</span></p>`;
+  }
 }
 
 async function loadSummarizeCandidates() {
@@ -9087,7 +9151,10 @@ async function loadSummarizeCandidates() {
       ? `<p class="hint">Ready to summarize:</p>` + cands.slice(0, 5).map((c) =>
           `<div class="mem-item"><span class="mem-ico">Σ</span><span class="mem-text">${esc(c.entity_name)} <span class="muted">(${c.count} memories)</span></span></div>`).join("")
       : `<p class="hint">No clusters ready for summarization yet.</p>`;
-  } catch {}
+  } catch (err) {
+    const box = $("#summarize-candidates");
+    if (box) box.innerHTML = `<p class="error-state">Couldn't load summaries.<br><span class="muted">${esc(err.message || "Try again.")}</span></p>`;
+  }
 }
 
 $("#summarize-all").addEventListener("click", async () => {
@@ -9105,6 +9172,7 @@ $("#summarize-all").addEventListener("click", async () => {
    ========================================================================== */
 let paletteIndex = 0;
 let paletteItems = [];
+let paletteRequest = 0;
 
 function closePalette() {
   const pal = $("#palette");
@@ -9128,12 +9196,16 @@ function openPalette() {
 async function renderPalette(q) {
   const box = $("#palette-results");
   if (!box) return;
+  const request = ++paletteRequest;
   const query = (q || "").trim().toLowerCase();
   const views = VIEWS.map((v) => ({ kind: "view", id: v, label: v[0].toUpperCase() + v.slice(1) }));
   let ents = [];
   let convs = [];
-  try { ents = await api("/entities" + (query ? ("?q=" + encodeURIComponent(query)) : "")); } catch {}
-  try { convs = await api("/conversations" + (query ? ("?q=" + encodeURIComponent(query)) : "")); } catch {}
+  [ents, convs] = await Promise.all([
+    api("/entities" + (query ? ("?q=" + encodeURIComponent(query)) : "")).catch(() => []),
+    api("/conversations" + (query ? ("?q=" + encodeURIComponent(query)) : "")).catch(() => []),
+  ]);
+  if (request !== paletteRequest) return;
   const viewHits = views.filter((v) => !query || v.label.toLowerCase().includes(query));
   const entHits = ents.slice(0, 10).map((e) => ({ kind: "entity", id: e.id, label: e.name, type: e.type }));
   const convHits = (convs || []).slice(0, 6).map((c) => ({ kind: "conversation", id: c.id, label: c.title || ("Chat " + c.id) }));
@@ -9169,12 +9241,12 @@ if ($("#palette-input")) {
   });
 }
 if ($("#palette-overlay")) $("#palette-overlay").addEventListener("click", closePalette);
-if ($("#browse-q")) $("#browse-q").addEventListener("input", loadBrowse);
-if ($("#browse-type")) $("#browse-type").addEventListener("change", loadBrowse);
-if ($("#browse-pinned")) $("#browse-pinned").addEventListener("change", loadBrowse);
-if ($("#browse-important")) $("#browse-important").addEventListener("change", loadBrowse);
-if ($("#browse-sort")) $("#browse-sort").addEventListener("change", loadBrowse);
-if ($("#browse-orphans")) $("#browse-orphans").addEventListener("change", loadBrowse);
+if ($("#browse-q")) $("#browse-q").addEventListener("input", () => runViewLoad(loadBrowse, "entities"));
+if ($("#browse-type")) $("#browse-type").addEventListener("change", () => runViewLoad(loadBrowse, "entities"));
+if ($("#browse-pinned")) $("#browse-pinned").addEventListener("change", () => runViewLoad(loadBrowse, "entities"));
+if ($("#browse-important")) $("#browse-important").addEventListener("change", () => runViewLoad(loadBrowse, "entities"));
+if ($("#browse-sort")) $("#browse-sort").addEventListener("change", () => runViewLoad(loadBrowse, "entities"));
+if ($("#browse-orphans")) $("#browse-orphans").addEventListener("change", () => runViewLoad(loadBrowse, "entities"));
 if ($("#browse-dupes")) $("#browse-dupes").addEventListener("click", showDuplicatePairs);
 if ($("#conv-archived")) $("#conv-archived").addEventListener("change", loadConversations);
 if ($("#mem-q")) $("#mem-q").addEventListener("keydown", (e) => { if (e.key === "Enter") loadMemory(); });
@@ -9225,16 +9297,26 @@ document.addEventListener("keydown", (e) => {
 /* ==========================================================================
    Boot
    ========================================================================== */
+async function bootStep(loader, label) {
+  try {
+    await loader();
+  } catch (err) {
+    console.error(`Second Brain: failed to load ${label}`, err);
+    toast(`Couldn't load ${label}. ${err.message || "Try again."}`);
+  }
+}
+
 async function boot() {
   const wanted = location.hash;
   refreshStatus();
-  await loadChatHistory();
-  await buildGraph();
-  await loadDashboard();
-  await loadSettings();
-  loadBackupStatus();
-  loadSummarizeCandidates();
-  loadConversations();
+  // One failed panel must not prevent the rest of the local app from opening.
+  await bootStep(loadChatHistory, "chat history");
+  await bootStep(buildGraph, "graph");
+  await bootStep(loadDashboard, "dashboard");
+  await bootStep(loadSettings, "settings");
+  runViewLoad(loadBackupStatus, "backups");
+  runViewLoad(loadSummarizeCandidates, "summaries");
+  runViewLoad(loadConversations, "conversations");
   if (wanted && wanted !== "#") {
     try { history.replaceState(null, "", wanted); } catch {}
     applyRoute();
@@ -9278,25 +9360,25 @@ boot();
       </div>
 
       <nav class="nav">
-        <button class="nav-item active" data-view="dashboard">
+        <button class="nav-item active" data-view="dashboard" title="Dashboard" aria-label="Dashboard">
           <span class="nav-ico">▦</span> Dashboard
         </button>
-        <button class="nav-item" data-view="chat">
+        <button class="nav-item" data-view="chat" title="Chat" aria-label="Chat">
           <span class="nav-ico">✉</span> Chat
         </button>
-        <button class="nav-item" data-view="graph">
+        <button class="nav-item" data-view="graph" title="Knowledge Graph" aria-label="Knowledge Graph">
           <span class="nav-ico">◉</span> Knowledge Graph
         </button>
-        <button class="nav-item" data-view="browse">
+        <button class="nav-item" data-view="browse" title="Entities" aria-label="Entities">
           <span class="nav-ico">▤</span> Entities
         </button>
-        <button class="nav-item" data-view="memory">
+        <button class="nav-item" data-view="memory" title="Memory" aria-label="Memory">
           <span class="nav-ico">🕘</span> Memory
         </button>
-        <button class="nav-item" data-view="search">
+        <button class="nav-item" data-view="search" title="Search" aria-label="Search">
           <span class="nav-ico">⌕</span> Search
         </button>
-        <button class="nav-item" data-view="settings">
+        <button class="nav-item" data-view="settings" title="Settings" aria-label="Settings">
           <span class="nav-ico">⚙</span> Settings
         </button>
       </nav>
@@ -9322,7 +9404,7 @@ boot();
         <div class="demo-banner" id="demo-banner" style="display:none">
           This database contains <strong>DEMO</strong> data. It is marked separately from your real memories.
         </div>
-        <div class="stats-grid" id="stats-grid"></div>
+        <div class="stats-grid" id="stats-grid"><div class="loading-state">Loading dashboard…</div></div>
 
         <div class="dash-cols">
           <div class="panel">
@@ -9369,7 +9451,7 @@ boot();
               <input type="checkbox" id="conv-archived" />
               <span>Archived</span>
             </label>
-            <div id="conv-list" class="conv-list"></div>
+            <div id="conv-list" class="conv-list"><p class="loading-state">Loading conversations…</p></div>
           </aside>
         <div class="chat-wrap">
           <div class="chat-scroll" id="chat-scroll">
@@ -9485,7 +9567,7 @@ boot();
           </label>
           <button class="btn-ghost" id="browse-dupes">Find duplicates</button>
         </div>
-        <div id="browse-list" class="browse-list"></div>
+        <div id="browse-list" class="browse-list"><p class="loading-state">Loading entities…</p></div>
       </section>
 
       <!-- ============ MEMORY ============ -->
@@ -9512,7 +9594,7 @@ boot();
           <input id="mem-date" class="input" type="date" />
           <button class="btn-ghost" id="mem-clear">Clear</button>
         </div>
-        <div class="timeline" id="timeline"></div>
+        <div class="timeline" id="timeline"><p class="loading-state">Loading memory…</p></div>
       </section>
 
       <!-- ============ SEARCH ============ -->
@@ -9714,7 +9796,7 @@ boot();
   </div>
 
   <!-- Toast -->
-  <div class="toast" id="toast"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="app.js"></script>
 </body>
@@ -9827,6 +9909,10 @@ html, body {
   text-align: left; transition: all 0.15s ease;
 }
 .nav-item:hover { background: var(--surface-2); color: var(--text); }
+.nav-item:focus-visible, .btn-primary:focus-visible, .btn-ghost:focus-visible,
+.btn-danger:focus-visible, .rel-del:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
 .nav-item.active {
   background: linear-gradient(135deg, rgba(34,211,238,0.14), rgba(139,92,246,0.14));
   color: var(--text);
@@ -9951,6 +10037,16 @@ button { font-family: var(--font); }
 
 .muted { color: var(--text-muted); }
 .hint { color: var(--text-muted); font-size: 13px; }
+.loading-state, .error-state {
+  padding: 24px 16px; text-align: center; color: var(--text-muted);
+}
+.loading-state::before {
+  content: ""; display: inline-block; width: 14px; height: 14px;
+  margin-right: 8px; vertical-align: -2px; border: 2px solid var(--border-strong);
+  border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite;
+}
+.error-state { color: var(--danger); }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- chat ---- */
 .chat-wrap { display: flex; flex-direction: column; height: calc(100vh - 150px); min-height: 400px; }
@@ -10231,7 +10327,7 @@ button { font-family: var(--font); }
 #conv-archived { margin: 0 0 8px; }
 .conv-item:hover { background: var(--surface-2); }
 .conv-item.active { background: rgba(34,211,238,0.1); border-color: rgba(34,211,238,0.3); }
-.conv-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 112px; }
 .conv-preview { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-layout .chat-wrap { height: 100%; min-height: 360px; }
 
@@ -10321,6 +10417,15 @@ body.theme-light .sidebar { background: rgba(255,255,255,0.7); }
   .nav-ico { font-size: 16px; }
   .sidebar-foot .status-text, .model-line, .privacy-badge { display: none; }
   .view { padding: 20px 16px 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 ````
@@ -11845,9 +11950,12 @@ the last three). Entities stay. Say **Summarize this conversation** or click
 **Σ** on a chat: that writes a recap memory and never deletes the messages.
 
 The chat rail can search, pin, archive, summarize, and export conversations
-as Markdown. You can import a local `.txt` / `.md` / `.json` file you pick
+as Markdown; clicking a conversation title opens it, while double-clicking
+renames it. You can import a local `.txt` / `.md` / `.json` file you pick
 yourself. Entity aliases are editable. Unlinked entities and near-duplicates
-are listed so you can merge them — nothing auto-deletes.
+are listed so you can merge them — nothing auto-deletes. Dashboard memory
+entries open their source message, and the GUI keeps loading/error states local
+to each panel instead of failing the whole screen.
 
 Forgetting a preference or a “learning X” fact **supersedes** it. It does not
 silently delete history.
@@ -12020,6 +12128,8 @@ The database is the source of truth. Current version: **2.7.0**.
 - Optional Ollama failures, malformed responses, and corrupt embeddings fail closed to offline behavior
 - Search filters apply consistently to facts and direct answers
 - Chat history restores stored message times; unknown conversation ids do not create orphan messages
+- GUI polish: source-linked dashboard memories, single-click chat opening, accessible mobile navigation, and isolated loading/error states
+- Race-safe GUI searches and panel loads so stale responses do not overwrite newer selections
 
 ## Next (optional)
 
@@ -14541,6 +14651,8 @@ def test_entity_browser_and_palette_markup():
     html = open(os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html"), encoding="utf-8").read()
     js = open(os.path.join(os.path.dirname(__file__), "..", "frontend", "app.js"), encoding="utf-8").read()
     assert 'id="view-browse"' in html
+    assert 'aria-label="Dashboard"' in html
+    assert 'role="status"' in html
     assert 'id="palette"' in html
     assert 'id="privacy-info"' in html
     assert 'id="backup-list"' in html
@@ -14565,6 +14677,11 @@ def test_entity_browser_and_palette_markup():
     assert "function sourceChips" in js
     assert "opts.created_at" in js
     assert "data-mid" in js
+    assert "Open source message" in js
+    assert "runViewLoad(loadBrowse, \"entities\")" in js
+    assert "if (ev.target.closest(\".rel-del\")) return;" in js
+    assert "let paletteRequest = 0;" in js
+    assert "if (request !== conversationRequest) return;" in js
     assert "Looks similar" in js
     assert "sources: m.sources" in js
     assert "function restore" not in js or "/backup/restore" in js

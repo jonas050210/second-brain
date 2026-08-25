@@ -176,9 +176,12 @@ the last three). Entities stay. Say **Summarize this conversation** or click
 **Σ** on a chat: that writes a recap memory and never deletes the messages.
 
 The chat rail can search, pin, archive, summarize, and export conversations
-as Markdown. You can import a local `.txt` / `.md` / `.json` file you pick
+as Markdown; clicking a conversation title opens it, while double-clicking
+renames it. You can import a local `.txt` / `.md` / `.json` file you pick
 yourself. Entity aliases are editable. Unlinked entities and near-duplicates
-are listed so you can merge them — nothing auto-deletes.
+are listed so you can merge them — nothing auto-deletes. Dashboard memory
+entries open their source message, and the GUI keeps loading/error states local
+to each panel instead of failing the whole screen.
 
 Forgetting a preference or a “learning X” fact **supersedes** it. It does not
 silently delete history.
