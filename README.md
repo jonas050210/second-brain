@@ -80,16 +80,28 @@ python -m pip install -r backend/requirements.txt
 ### 3. Run
 
 ```powershell
-python run.py
+python start.py
 ```
 
-…or double-click `start.bat`. Open **http://localhost:8000**.
+`start.py` is the primary launcher: it detects the environment, installs only
+missing packages, and starts the app. After the first successful setup it will
+**not** reinstall anything. Open **http://localhost:8000**.
+
+First-time setup only:
+
+```powershell
+python setup.py
+python start.py
+```
+
+`main.py` starts the server directly if dependencies are already installed.
+`run.py` remains a thin alias.
 
 ### 4. Run the tests
 
 ```powershell
 python -m pip install pytest httpx
-python -m pytest tests/ -q
+python test_overall.py
 ```
 
 ---
@@ -170,8 +182,13 @@ When confidence is low, information is not forced into a specific category.
 
 ```
 second-brain/
-├── run.py                 # starts the server (http://localhost:8000)
-├── start.bat              # Windows launcher
+├── start.py               # primary launcher (detect + install missing + run)
+├── setup.py               # one-time environment setup
+├── main.py                # ASGI / uvicorn entry
+├── test_overall.py        # full production test suite
+├── requirements.txt
+├── ROADMAP
+├── run.py                 # thin server alias
 ├── backend/
 │   ├── app.py             # FastAPI routes + serves the UI
 │   ├── config.py          # env/config, entity & relation taxonomies

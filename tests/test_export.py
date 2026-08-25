@@ -104,3 +104,24 @@ def test_export_includes_status_and_confidence():
     ent = next(e for e in data["entities"] if e["name"] == "Python")
     assert "confidence" in ent and isinstance(ent["confidence"], (int, float))
     assert "status" in ent
+
+
+def test_export_includes_facts():
+    _seed()
+    data = json.loads(export.export_json())
+    assert "facts" in data and data["facts"]
+    assert any("Python" in f["text"] for f in data["facts"])
+
+
+def test_replace_import_restores_user_relationships():
+    _seed()
+    data = json.loads(export.export_json())
+    r = export.import_from_json(json.dumps(data), mode="replace")
+    assert r["ok"] is True
+    py = store.find_entity_by_name("Python")
+    uid = store.ensure_user_entity()
+    rels = db.query(
+        "SELECT * FROM relationships WHERE source_id=? AND target_id=?",
+        (uid, py["id"]),
+    )
+    assert rels, "learning relationship from User must survive replace import"

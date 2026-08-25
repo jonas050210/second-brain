@@ -205,6 +205,7 @@ def multi_hop(seed_ids, max_depth=3, max_nodes=40, active_only=True):
     frontier = list(seed_ids)
     facts = []
     seen_edges = set()
+    pending = []  # (depth, rid, other)
     for depth in range(1, int(max_depth) + 1):
         nxt = []
         for nid in frontier:
@@ -212,25 +213,36 @@ def multi_hop(seed_ids, max_depth=3, max_nodes=40, active_only=True):
                 if rid in seen_edges:
                     continue
                 seen_edges.add(rid)
-                r = edges[rid]
-                src = _entity_map([r["source_id"]]).get(r["source_id"])
-                tgt = _entity_map([r["target_id"]]).get(r["target_id"])
-                if not src or not tgt:
-                    continue
-                facts.append({
-                    "text": f'{src["name"]} {r["relation"]} {tgt["name"]}',
-                    "confidence": r["confidence"],
-                    "source_message_id": r["source_message_id"],
-                    "entities": [r["source_id"], r["target_id"]],
-                    "depth": depth,
-                    "relation": r["relation"],
-                })
+                pending.append((depth, rid, other))
                 if other not in visited:
                     visited.add(other)
                     nxt.append(other)
         frontier = nxt
         if len(visited) >= max_nodes or not frontier:
             break
+    needed = set()
+    for _, rid, _ in pending:
+        r = edges.get(rid)
+        if r:
+            needed.add(r["source_id"])
+            needed.add(r["target_id"])
+    emap = _entity_map(needed)
+    for depth, rid, _other in pending:
+        r = edges.get(rid)
+        if not r:
+            continue
+        src = emap.get(r["source_id"])
+        tgt = emap.get(r["target_id"])
+        if not src or not tgt:
+            continue
+        facts.append({
+            "text": f'{src["name"]} {r["relation"]} {tgt["name"]}',
+            "confidence": r["confidence"],
+            "source_message_id": r["source_message_id"],
+            "entities": [r["source_id"], r["target_id"]],
+            "depth": depth,
+            "relation": r["relation"],
+        })
     return facts
 
 

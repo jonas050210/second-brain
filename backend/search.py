@@ -325,6 +325,26 @@ def _passes_filters(row, filters):
         return False
     if filters.get("important") is not None and bool(row.get("important", 0)) != bool(filters["important"]):
         return False
+    created = (row.get("created_at") or "")[:10]
+    updated = (row.get("updated_at") or created)[:10]
+    if filters.get("date_from") and updated < str(filters["date_from"])[:10]:
+        return False
+    if filters.get("date_to") and created > str(filters["date_to"])[:10]:
+        return False
+    if filters.get("source"):
+        src_filter = str(filters["source"])
+        if src_filter.lower() == "demo":
+            try:
+                meta = json.loads(row.get("meta") or "{}")
+            except ValueError:
+                meta = {}
+            if not meta.get("demo"):
+                return False
+        else:
+            mid = row.get("source_message_id")
+            msg = store.message_by_id(mid) if mid else None
+            if not msg or str(msg.get("conversation_id")) != src_filter:
+                return False
     return True
 
 
@@ -348,19 +368,18 @@ def _status_of(res):
         # Check if the top fact is actually intent-relevant and confident.
         top_conf = facts[0]["confidence"] if facts else 0.0
         if top_conf >= 0.6:
-            return "answered"
+            return "known"
         return "uncertain"
     has_name = any((e.get("keyword") or 0) >= 1 for e in ents)
     if not has_name:
         return "unknown"
     top = ents[0]["score"] if ents else 0.0
     if top >= 2.0:
-        return "answered"
+        return "known"
     return "uncertain"
 
 
 def compose_answer(query_text, res, model, context=None):
-    intent = res["intent"]
     entities = res["entities"]
     facts = res["facts"]
     sources = res.get("sources", [])
@@ -445,7 +464,7 @@ def is_question(text):
         return True
     lower = t.lower()
     interrogatives = ("what", "who", "which", "when", "where", "how", "do i", "am i",
-                      "have i", "did i", "list", "tell me", "show me", "remember",
+                      "have i", "did i", "list", "tell me", "show me",
                       "whats", "what's", "give me", "summarize", "what do you",
                       "what are", "what is", "do you", "can you tell")
     return lower.startswith(interrogatives)

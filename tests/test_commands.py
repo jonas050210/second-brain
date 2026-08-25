@@ -89,3 +89,17 @@ def test_set_confidence_command():
 
 def test_unknown_command_returns_none():
     assert commands.handle_command("I like to code") is None
+
+
+def test_remember_without_that_is_remember_action():
+    r = commands.handle_command("Remember I prefer Python")
+    assert r is not None
+    assert r.get("action") == "remember"
+    assert "prefer Python" in r["payload"]
+
+
+def test_stop_remembering_forgets_entity():
+    e = store.create_entity("OldFact", "concept")
+    r = commands.handle_command("Stop remembering OldFact")
+    assert r["ok"] is True
+    assert store.entity_row(e) is None

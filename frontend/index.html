@@ -64,6 +64,9 @@
           <h1>Dashboard</h1>
           <p class="view-sub">Your knowledge, growing itself.</p>
         </header>
+        <div class="demo-banner" id="demo-banner" style="display:none">
+          This database contains <strong>DEMO</strong> data. It is marked separately from your real memories.
+        </div>
         <div class="stats-grid" id="stats-grid"></div>
 
         <div class="dash-cols">
@@ -102,6 +105,11 @@
             <button class="btn-ghost" id="chat-new">New conversation</button>
           </div>
         </header>
+        <div class="chat-layout">
+          <aside class="conv-rail">
+            <div class="conv-rail-head">Conversations</div>
+            <div id="conv-list" class="conv-list"></div>
+          </aside>
         <div class="chat-wrap">
           <div class="chat-scroll" id="chat-scroll">
             <div class="chat-empty" id="chat-empty">
@@ -115,6 +123,7 @@
             <textarea id="chat-input" rows="1" placeholder="Talk to your Second Brain…"></textarea>
             <button id="chat-send" class="btn-primary">Send</button>
           </div>
+        </div>
         </div>
       </section>
 
@@ -149,10 +158,20 @@
             <input type="checkbox" id="gf-important" />
             <span>Important only</span>
           </label>
+          <label class="field compact">
+            <span>Min confidence <span id="gf-conf-val">0</span></span>
+            <input id="gf-confidence" class="input range" type="range" min="0" max="1" step="0.05" value="0" />
+          </label>
           <button class="btn-ghost" id="graph-apply">Apply filters</button>
         </div>
         <div class="graph-layout">
           <div class="graph-legend" id="graph-legend"></div>
+          <div class="graph-zoom">
+            <button class="btn-ghost" id="graph-zoom-in" title="Zoom in">+</button>
+            <button class="btn-ghost" id="graph-zoom-out" title="Zoom out">−</button>
+            <button class="btn-ghost" id="graph-fit" title="Fit">Fit</button>
+            <button class="btn-ghost" id="graph-expand" title="Expand neighborhood">Expand</button>
+          </div>
           <div id="cy"></div>
         </div>
       </section>
@@ -174,6 +193,7 @@
             <option value="superseded">Superseded</option>
             <option value="conflict">Conflicts</option>
             <option value="command">Commands</option>
+            <option value="summary">Summaries</option>
           </select>
           <input id="mem-entity" class="input" type="text" placeholder="Filter by entity…" />
           <input id="mem-date" class="input" type="date" />
@@ -215,6 +235,11 @@
             <input type="checkbox" id="sf-important" />
             <span>Important</span>
           </label>
+          <input id="sf-from" class="input" type="date" title="From date" />
+          <input id="sf-to" class="input" type="date" title="To date" />
+          <select id="sf-source" class="input">
+            <option value="">Any source</option>
+          </select>
         </div>
         <div id="search-answer" class="panel search-answer" style="display:none"></div>
         <div id="search-sources" class="panel" style="display:none"></div>
@@ -265,6 +290,13 @@
               <input type="checkbox" id="set-auto-memory" />
               <span>Auto-memory <span class="muted">(extract knowledge from messages automatically)</span></span>
             </label>
+            <label class="field">
+              <span>Theme</span>
+              <select id="set-theme" class="input">
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+              </select>
+            </label>
             <button class="btn-primary" id="set-behavior-save">Save behavior</button>
           </div>
         </div>
@@ -281,6 +313,7 @@
             <div style="display:flex; gap:8px; flex-wrap:wrap">
               <button class="btn-danger" id="reset-btn">Reset all data</button>
               <button class="btn-ghost" id="demo-btn">Load demo data</button>
+              <button class="btn-ghost" id="demo-clear-btn">Clear demo data</button>
             </div>
           </div>
         </div>

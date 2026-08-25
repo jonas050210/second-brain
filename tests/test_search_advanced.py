@@ -13,7 +13,7 @@ def test_multi_hop_question():
     _seed()
     # "What technology does the project I'm learning Rust for use?"
     a = search.answer("What technology does the game engine use?")
-    assert a["status"] in ("answered", "uncertain")
+    assert a["status"] in ("known", "answered", "uncertain")
     # Should be able to reach "Bevy" through the graph.
     res = search.search("What technology does the game engine use?")
     fact_texts = [f["text"] for f in res["facts"]]

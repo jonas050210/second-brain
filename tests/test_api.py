@@ -95,7 +95,7 @@ def test_search_endpoint(client):
     client.post("/api/chat", json={"content": "I am learning Rust"})
     r = client.post("/api/search", json={"query": "What am I learning?"})
     body = r.json()
-    assert body["status"] in ("answered", "unknown", "uncertain")
+    assert body["status"] in ("known", "answered", "unknown", "uncertain")
 
 
 def test_dashboard(client):

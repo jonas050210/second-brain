@@ -8,8 +8,35 @@ import os
 
 # ---- Paths ---------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.environ.get("SECOND_BRAIN_DB", os.path.join(BASE_DIR, "data", "brain.db"))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+
+
+def _load_dotenv():
+    """Load a local .env if present. Does not override already-set env vars."""
+    for candidate in (
+        os.path.join(BASE_DIR, ".env"),
+        os.path.join(BASE_DIR, "backend", ".env"),
+    ):
+        if not os.path.isfile(candidate):
+            continue
+        try:
+            with open(candidate, encoding="utf-8") as fh:
+                for raw in fh:
+                    line = raw.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip().strip("\"'")
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+        except OSError:
+            continue
+
+
+_load_dotenv()
+
+DB_PATH = os.environ.get("SECOND_BRAIN_DB", os.path.join(BASE_DIR, "data", "brain.db"))
 
 # ---- AI / model configuration (the "replaceable LLM" requirement) --------
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")

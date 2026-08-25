@@ -122,12 +122,14 @@ def extract(text, model=None, source_message_id=None, demo=False):
         data = fallback.extract_with_rules(text)
         result["used_fallback"] = True
 
+    data = _augment_from_text(text, data or {})
     entities = data.get("entities", []) or []
     relationships = data.get("relationships", []) or []
     stops = data.get("stops", []) or []
 
     store.ensure_user_entity()
     threshold = confidence_threshold()
+    exclusive_relations = {"prefers", "lives_in", "works_at"}
 
     # ---- Entities ------------------------------------------------------
     id_by_name = {}
@@ -158,7 +160,8 @@ def extract(text, model=None, source_message_id=None, demo=False):
                                    "created": created})
         if created:
             mem = f'New {row["type"]} "{row["name"]}" detected'
-            store.add_memory("entity", mem, entity_ids=[eid], confidence=conf)
+            store.add_memory("entity", mem, entity_ids=[eid], message_id=source_message_id,
+                             confidence=conf)
             result["memories"].append(mem)
             result["entity_updates"].append(f'+ New {row["type"]} "{row["name"]}"')
             result["remembered"].append(
@@ -186,16 +189,19 @@ def extract(text, model=None, source_message_id=None, demo=False):
         if sid is None or tid is None or sid == tid:
             continue
 
-        # Conflict resolution: a new "prefers" supersedes the previous one.
-        if relation == "prefers":
-            superseded_ids = store.supersede_relations_of_type(sid, "prefers",
+        # Exclusive facts: a new prefers / lives_in / works_at replaces the old one.
+        if relation in exclusive_relations:
+            superseded_ids = store.supersede_relations_of_type(sid, relation,
                                                                except_target_id=tid)
             for old_id in superseded_ids:
                 old = store.entity_row(old_id)
                 if old:
-                    store.add_memory("conflict",
-                                     f'Preference changed: now {store.entity_row(tid)["name"]} (was {old["name"]})',
-                                     entity_ids=[tid, old_id], confidence=conf)
+                    store.add_memory(
+                        "conflict",
+                        f'{relation} changed: now {store.entity_row(tid)["name"]} (was {old["name"]})',
+                        entity_ids=[tid, old_id], message_id=source_message_id,
+                        confidence=conf,
+                    )
                     result["superseded"].append(old["name"])
 
         existed = store.relationship_exists(sid, tid, relation)
@@ -203,7 +209,8 @@ def extract(text, model=None, source_message_id=None, demo=False):
         srow, trow = store.entity_row(sid), store.entity_row(tid)
         if not existed:
             label = f'{srow["name"]} → {relation} → {trow["name"]}'
-            store.add_memory("relationship", label, entity_ids=[sid, tid], confidence=conf)
+            store.add_memory("relationship", label, entity_ids=[sid, tid],
+                             message_id=source_message_id, confidence=conf)
             result["memories"].append(label)
             result["relationship_updates"].append(f"+ {label}")
             result["remembered"].append(
@@ -240,7 +247,8 @@ def extract(text, model=None, source_message_id=None, demo=False):
             srow, trow = store.entity_row(sid), store.entity_row(tid)
             label = f'{srow["name"]} {relation} {trow["name"]}'
             store.add_memory("superseded", f'Superseded: {label}',
-                             entity_ids=[sid, tid], confidence=0.9)
+                             entity_ids=[sid, tid], message_id=source_message_id,
+                             confidence=0.9)
             result["superseded"].append(label)
             result["relationship_updates"].append(f"~ {label} (no longer active)")
 
@@ -262,3 +270,72 @@ def _resolve_entity(name, conf, id_by_name, source_message_id=None, demo_meta=No
 
 def normalize_me(name):
     return store.normalize_name(name) in ("i", "me", "my", "myself", "mine", "user")
+
+
+# Reliability net: even if the LLM misses a stop/switch, the text itself is
+# enough to supersede contradictory active facts.
+_SWITCH_RE = re.compile(
+    r"(?:switched|switching|moved)\s+from\s+(.+?)\s+to\s+(.+?)(?:[.!?;,]|$)",
+    re.I,
+)
+_INSTEAD_RE = re.compile(
+    r"(?:now|instead)\s+(?:learning|using|studying)?\s*(.+?)\s+(?:instead of|rather than)\s+(.+?)(?:[.!?;,]|$)",
+    re.I,
+)
+_STOP_RE = re.compile(
+    r"(?:stopped|no longer|quit|gave up on|dropped)\s+"
+    r"(?:learning|studying|using|working on|practicing)\s+(.+?)(?:[.!?;,]|$)",
+    re.I,
+)
+
+
+def _augment_from_text(text, data):
+    """Add stops (and missing entities) detected deterministically from the text."""
+    data = dict(data)
+    data.setdefault("entities", [])
+    data.setdefault("relationships", [])
+    data.setdefault("stops", [])
+    stops = list(data["stops"])
+
+    def _add_stop(target, relation):
+        target = (target or "").strip().strip("\"'")
+        if not target or len(target) < 2:
+            return
+        stops.append({"source": "User", "target": target, "relation": relation})
+
+    for m in _SWITCH_RE.finditer(text):
+        old, new = m.group(1).strip(), m.group(2).strip()
+        _add_stop(old, "learning")
+        _add_stop(old, "uses")
+        if new:
+            data["relationships"].append(
+                {"source": "User", "target": new, "relation": "prefers", "confidence": 0.9}
+            )
+            data["entities"].append(
+                {"name": new, "type": "technology", "description": "", "confidence": 0.9}
+            )
+    for m in _INSTEAD_RE.finditer(text):
+        new, old = m.group(1).strip(), m.group(2).strip()
+        _add_stop(old, "learning")
+        _add_stop(old, "uses")
+        if new:
+            data["relationships"].append(
+                {"source": "User", "target": new, "relation": "learning", "confidence": 0.9}
+            )
+    for m in _STOP_RE.finditer(text):
+        _add_stop(m.group(1).strip(), "learning")
+        _add_stop(m.group(1).strip(), "uses")
+
+    seen, dedup = set(), []
+    for s in stops:
+        key = (
+            (s.get("source") or "").lower(),
+            (s.get("target") or "").lower(),
+            (s.get("relation") or "").lower(),
+        )
+        if key in seen or not key[1]:
+            continue
+        seen.add(key)
+        dedup.append(s)
+    data["stops"] = dedup
+    return data

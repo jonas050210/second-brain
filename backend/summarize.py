@@ -75,8 +75,7 @@ def summarize_entity(entity_id, memory_ids=None):
         target = next((c for c in cands if c["entity_id"] == entity_id), None)
         memory_ids = target["memory_ids"] if target else []
 
-    mems = [store.message_by_id if False else db.query_one("SELECT * FROM memories WHERE id=?", (mid,))
-            for mid in memory_ids]
+    mems = [db.query_one("SELECT * FROM memories WHERE id=?", (mid,)) for mid in memory_ids]
     mems = [m for m in mems if m]
 
     facts = store_relationships_readable(entity_id)

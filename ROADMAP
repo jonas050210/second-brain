@@ -1,0 +1,35 @@
+# Second Brain — Roadmap
+
+Local-first personal AI memory. Reliability over cleverness.
+
+## Done
+
+- Automatic memory extraction from chat (Ollama + offline fallback)
+- Entities, relationships, facts, aliases, confidence, sources, timestamps
+- Active / superseded / pinned / important state
+- Duplicate merge, conflict detection, supersession, memory history
+- Knowledge graph (real SQLite data): pan, zoom, focus, expand, filters
+- Hybrid search (keyword + semantic + graph) and multi-hop RAG
+- KNOWN / UNKNOWN / UNCERTAIN answers with sources
+- Memory consolidation (summaries reference originals; nothing is deleted)
+- JSON / Markdown export; validated merge / replace import
+- Local backups (SQLite + JSON + Markdown), no secrets
+- Dashboard from live data; demo data is labelled
+- Settings: Ollama URL, models, thresholds, auto-memory, privacy, reset, demo
+- start.py / setup.py / main.py launcher (no repeated reinstall)
+- Offline fallback when Ollama is down
+
+## Next
+
+- Optional scheduled backups
+- Richer conversation search across all threads
+- Optional GPU-aware Ollama model recommendations for 8 GB VRAM
+- Plugin extractors for notes / files the user explicitly imports
+- Multi-user is out of scope (this is a personal, local brain)
+
+## Non-goals
+
+- Cloud sync by default
+- Telemetry
+- Inventing personal memories
+- Replacing the local SQLite graph with a second store

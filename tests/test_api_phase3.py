@@ -111,6 +111,39 @@ def test_search_returns_sources_and_reasons(client):
     assert "reasons" in body["entities"][0]
 
 
+def test_facts_endpoint(client):
+    _seed(client)
+    r = client.get("/api/facts")
+    assert r.status_code == 200
+    assert any("Rust" in f["text"] or "Bevy" in f["text"] for f in r.json())
+
+
+def test_conversation_rename_and_delete(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    cid = client.get("/api/conversations").json()[0]["id"]
+    r = client.patch(f"/api/conversations/{cid}", json={"title": "Rust notes"})
+    assert r.status_code == 200
+    titles = [c["title"] for c in client.get("/api/conversations").json()]
+    assert "Rust notes" in titles
+    client.delete(f"/api/conversations/{cid}")
+    ids = [c["id"] for c in client.get("/api/conversations").json()]
+    assert cid not in ids
+
+
+def test_privacy_in_settings(client):
+    s = client.get("/api/settings").json()
+    assert s["privacy"]["telemetry"] is False
+    assert s["privacy"]["mode"] == "local-first"
+
+
+def test_chat_stream(client):
+    with client.stream("POST", "/api/chat/stream",
+                       json={"content": "I am learning Python"}) as res:
+        assert res.status_code == 200
+        text = b"".join(res.iter_bytes()).decode()
+    assert "event: done" in text
+
+
 def test_entity_history_endpoint(client):
     client.post("/api/chat", json={"content": "I am learning Rust"})
     client.post("/api/chat", json={"content": "I stopped learning Rust"})

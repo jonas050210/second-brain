@@ -11,17 +11,19 @@ Lets the user steer memory directly in chat:
 These are deterministic, rule-based commands (no LLM required), so they work
 even in offline mode and always modify the real database.
 """
+import json
 import re
 
 from . import config, db, store
 
 # Leading phrases that mark an explicit memory-control command.
 COMMAND_LEADS = [
-    "remember that", "remember", "forget that", "forget", "delete the memory",
+    "remember that", "remember", "please remember",
+    "forget that", "forget", "please forget", "delete the memory",
     "remove the memory", "remove", "delete", "unremember",
     "pin ", "unpin ", "mark ", "unmark ",
     "merge ", "change ", "update ", "rename ", "set confidence",
-    "make this important", "stop remembering",
+    "make this important", "make ", "stop remembering",
 ]
 
 
@@ -30,7 +32,8 @@ def is_command(text):
     return any(t.startswith(lead) for lead in COMMAND_LEADS) or \
         t.startswith(("remember ", "forget ", "remove ", "delete ", "pin ",
                       "unpin ", "mark ", "unmark ", "merge ", "change ",
-                      "update ", "rename "))
+                      "update ", "rename ", "please remember", "please forget",
+                      "stop remembering"))
 
 
 def _find_entity(name):
@@ -95,10 +98,15 @@ def handle_command(text):
     t = text.strip()
     tl = t.lower().rstrip(".,!?;: ")
 
-    # ---- remember that X -------------------------------------------------
-    m = re.match(r"remember that\s+(.+)$", tl, re.I)
+    # ---- remember [that] X ----------------------------------------------
+    m = re.match(r"(?:please\s+)?remember(?:\s+that)?\s+(.+)$", t.strip(), re.I)
     if m:
-        return {"action": "remember", "payload": m.group(1).strip()}
+        return {"action": "remember", "payload": m.group(1).strip().rstrip(".,!?;:")}
+
+    # ---- stop remembering X ---------------------------------------------
+    m = re.match(r"stop remembering\s+(.+)$", tl, re.I)
+    if m:
+        return forget_target(m.group(1).strip())
 
     # ---- forget / delete / remove ----------------------------------------
     m = re.match(r"(?:forget that|forget|delete the memory|remove the memory|unremember|delete|remove)\s+(?:that\s+)?(.+)$", tl, re.I)
@@ -123,13 +131,24 @@ def handle_command(text):
         store.update_entity(e["id"], pinned=0)
         return {"reply": f'Unpinned "{e["name"]}".', "ok": True, "entities": [e["id"]]}
 
-    # ---- mark as important / unmark --------------------------------------
-    m = re.match(r"mark\s+(.+?)\s+as\s+important$", tl, re.I)
+    # ---- mark as important / make X important / make this important ------
+    m = re.match(r"(?:mark\s+(.+?)\s+as\s+important|make\s+(.+?)\s+important)$", tl, re.I)
     if m:
-        e = _find_entity(m.group(1).strip())
+        name = (m.group(1) or m.group(2) or "").strip()
+        e = _resolve_this(name) if name.lower() in ("this", "it", "that") else _find_entity(name)
         if not e:
-            return {"reply": f"I couldn't find an entity matching \"{m.group(1).strip()}\".", "ok": False}
+            return {"reply": f"I couldn't find an entity matching \"{name}\".", "ok": False}
         store.update_entity(e["id"], important=1)
+        store.add_memory("command", f'Marked {e["name"]} as important', entity_ids=[e["id"]])
+        return {"reply": f'Marked "{e["name"]}" as important.', "ok": True, "entities": [e["id"]]}
+
+    m = re.match(r"make this important$", tl, re.I)
+    if m:
+        e = _resolve_this("this")
+        if not e:
+            return {"reply": "I don't know which memory to mark as important.", "ok": False}
+        store.update_entity(e["id"], important=1)
+        store.add_memory("command", f'Marked {e["name"]} as important', entity_ids=[e["id"]])
         return {"reply": f'Marked "{e["name"]}" as important.', "ok": True, "entities": [e["id"]]}
 
     m = re.match(r"unmark\s+(.+)$", tl, re.I)
@@ -219,6 +238,25 @@ def handle_command(text):
                 "entities": [e["id"]]}
 
     return None
+
+
+def _resolve_this(name):
+    """Resolve 'this/it/that' to the most recently touched non-user entity."""
+    mems = store.recent_memories(30)
+    for m in mems:
+        try:
+            ids = json.loads(m.get("entity_ids") or "[]")
+        except ValueError:
+            ids = []
+        for eid in reversed(ids):
+            row = store.entity_row(eid)
+            if row and row["norm_name"] != store.normalize_name(config.USER_ENTITY_NAME):
+                return row
+    rows = [r for r in store.all_entities() if r["norm_name"] != "user"]
+    if not rows:
+        return None
+    rows.sort(key=lambda r: r.get("updated_at") or r.get("created_at") or "", reverse=True)
+    return rows[0]
 
 
 def forget_target(target):

@@ -28,7 +28,7 @@ def test_hybrid_search_combines_signals():
 def test_answer_known():
     _seed()
     a = search.answer("What projects am I working on?")
-    assert a["status"] == "answered"
+    assert a["status"] in ("known", "answered")
     assert "Nebula" in a["text"]
 
 
@@ -44,14 +44,14 @@ def test_answer_unknown_no_hallucination():
 def test_answer_learning_intent():
     _seed()
     a = search.answer("What am I learning?")
-    assert a["status"] == "answered"
+    assert a["status"] in ("known", "answered")
     assert "Python" in a["text"]
 
 
 def test_answer_preference_intent():
     extract.extract("I prefer Python")
     a = search.answer("What language do I prefer?")
-    assert a["status"] in ("answered", "uncertain")
+    assert a["status"] in ("known", "answered", "uncertain")
     if a["status"] == "answered":
         assert "Python" in a["text"]
 

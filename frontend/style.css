@@ -421,7 +421,7 @@ button { font-family: var(--font); }
 
 /* answer status */
 .ans-status { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; margin-left: 8px; }
-.ans-answered { background: rgba(52,211,153,0.15); color: var(--ok); }
+.ans-answered, .ans-known { background: rgba(52,211,153,0.15); color: var(--ok); }
 .ans-unknown { background: rgba(248,113,113,0.15); color: var(--danger); }
 .ans-uncertain { background: rgba(251,191,36,0.15); color: var(--c-concept); }
 
@@ -478,3 +478,58 @@ button { font-family: var(--font); }
 
 /* source chips in search */
 #search-sources .panel-body { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* conversation rail */
+.chat-layout { display: grid; grid-template-columns: 220px 1fr; gap: 16px; height: calc(100vh - 150px); min-height: 400px; }
+@media (max-width: 860px) { .chat-layout { grid-template-columns: 1fr; height: auto; } }
+.conv-rail {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 12px; overflow-y: auto; min-height: 160px;
+}
+.conv-rail-head { font-size: 11px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
+.conv-item {
+  padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 4px;
+  border: 1px solid transparent;
+}
+.conv-item:hover { background: var(--surface-2); }
+.conv-item.active { background: rgba(34,211,238,0.1); border-color: rgba(34,211,238,0.3); }
+.conv-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-preview { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-layout .chat-wrap { height: 100%; min-height: 360px; }
+
+/* streaming caret */
+.msg-bubble.streaming::after {
+  content: "▍"; display: inline-block; margin-left: 2px; animation: blink 1s step-end infinite;
+  color: var(--accent);
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* graph zoom cluster */
+.graph-zoom {
+  position: absolute; top: 14px; right: 14px; z-index: 5; display: flex; gap: 6px;
+}
+.graph-zoom .btn-ghost { padding: 6px 10px; font-size: 13px; }
+.field.compact { font-size: 12px; color: var(--text-muted); min-width: 140px; }
+.field.compact span { display: block; margin-bottom: 2px; }
+
+/* demo banner */
+.demo-banner {
+  margin-bottom: 16px; padding: 10px 14px; border-radius: var(--radius-sm);
+  background: rgba(139,92,246,0.12); border: 1px solid rgba(139,92,246,0.35);
+  color: var(--text); font-size: 13.5px;
+}
+
+/* theme: light */
+body.theme-light {
+  --bg: #eef2f8; --bg-soft: #e4eaf3; --surface: rgba(255,255,255,0.72);
+  --surface-2: rgba(255,255,255,0.9); --border: rgba(15,23,42,0.08);
+  --border-strong: rgba(15,23,42,0.16); --text: #0f172a; --text-muted: #475569;
+  --text-dim: #64748b;
+}
+body.theme-light .sidebar { background: rgba(255,255,255,0.7); }
+
+.rel-del {
+  margin-left: 8px; border: none; background: transparent; color: var(--text-dim);
+  cursor: pointer; font-size: 13px;
+}
+.rel-del:hover { color: var(--danger); }

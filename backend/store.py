@@ -51,17 +51,31 @@ def vec_from_json(s):
     return np.array(json.loads(s), dtype=np.float32)
 
 
+_EMBED_CACHE = {}
+_EMBED_CACHE_MAX = 256
+
+
 def embed_text(text, model=None):
     """Embed text using Ollama if available, else the fallback hasher."""
     if model is None:
         model = db.get_setting("embedding_model", config.DEFAULT_EMBEDDING_MODEL)
+    cache_key = (model or "", text or "")
+    cached = _EMBED_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    vec = None
     if ollama.available():
         try:
-            return np.array(ollama.embed(model or config.DEFAULT_EMBEDDING_MODEL, text),
-                            dtype=np.float32)
+            vec = np.array(ollama.embed(model or config.DEFAULT_EMBEDDING_MODEL, text),
+                           dtype=np.float32)
         except Exception:
-            pass
-    return np.array(fallback.fallback_embed(text), dtype=np.float32)
+            vec = None
+    if vec is None or vec.size == 0:
+        vec = np.array(fallback.fallback_embed(text), dtype=np.float32)
+    if len(_EMBED_CACHE) >= _EMBED_CACHE_MAX:
+        _EMBED_CACHE.pop(next(iter(_EMBED_CACHE)))
+    _EMBED_CACHE[cache_key] = vec
+    return vec
 
 
 def merge_similarity_threshold():
@@ -148,7 +162,10 @@ def find_duplicate(entity_name, etype, embedding=None):
     if row:
         return row
 
-    alias_rows = db.query("SELECT * FROM entities")
+    alias_rows = db.query(
+        "SELECT * FROM entities WHERE aliases LIKE ?",
+        (f"%{norm}%",),
+    )
     for r in alias_rows:
         try:
             aliases = json.loads(r.get("aliases") or "[]")
@@ -159,6 +176,7 @@ def find_duplicate(entity_name, etype, embedding=None):
 
     if embedding is not None:
         threshold = merge_similarity_threshold()
+        alias_rows = db.query("SELECT * FROM entities WHERE embedding IS NOT NULL")
         for r in alias_rows:
             if normalize_name(r["name"]) in ("user",) and etype == "person":
                 continue
@@ -220,8 +238,26 @@ def merge_entities(keep_id, drop_id):
     desc = keep.get("description") or drop.get("description") or ""
     update_entity(keep_id, description=desc, aliases=aliases,
                   confidence=max(keep["confidence"], drop["confidence"]))
-    db.execute("UPDATE memories SET entity_ids=? WHERE entity_ids=?",
-               (json.dumps([keep_id]), json.dumps([drop_id])))
+    # Rewrite every memory that references the dropped entity (including
+    # multi-id memories such as relationship events).
+    mems = db.query("SELECT id, entity_ids FROM memories WHERE entity_ids LIKE ?",
+                    (f"%{drop_id}%",))
+    for m in mems:
+        try:
+            ids = json.loads(m["entity_ids"] or "[]")
+        except ValueError:
+            continue
+        if drop_id not in ids:
+            continue
+        rewritten, seen = [], set()
+        for i in ids:
+            nid = keep_id if i == drop_id else i
+            if nid in seen:
+                continue
+            seen.add(nid)
+            rewritten.append(nid)
+        db.execute("UPDATE memories SET entity_ids=? WHERE id=?",
+                   (json.dumps(rewritten), m["id"]))
     db.execute("DELETE FROM entities WHERE id=?", (drop_id,))
     return {"ok": True, "id": keep_id}
 
@@ -379,21 +415,40 @@ def new_conversation():
 
 
 def conversation_messages(cid, limit=None):
-    sql = "SELECT * FROM messages WHERE conversation_id=? ORDER BY id ASC"
+    """Return messages in chronological order. `limit` means the last N turns."""
     if limit:
-        sql += f" LIMIT {int(limit)}"
-    return db.query(sql, (cid,))
+        return db.query(
+            "SELECT * FROM ("
+            "  SELECT * FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT ?"
+            ") ORDER BY id ASC",
+            (cid, int(limit)),
+        )
+    return db.query(
+        "SELECT * FROM messages WHERE conversation_id=? ORDER BY id ASC",
+        (cid,),
+    )
+
+
+def delete_conversation(cid):
+    """Delete a conversation and its messages. Long-term memories stay."""
+    db.execute("DELETE FROM messages WHERE conversation_id=?", (cid,))
+    db.execute("DELETE FROM conversations WHERE id=?", (cid,))
+    current = db.get_setting("current_conversation_id")
+    if current is not None and str(current) == str(cid):
+        db.set_setting("current_conversation_id", None)
+    return True
 
 
 # --------------------------------------------------------------------------
 # Memories (timeline events)
 # --------------------------------------------------------------------------
 
-def add_memory(kind, text, entity_ids=None, message_id=None, confidence=0.8):
+def add_memory(kind, text, entity_ids=None, message_id=None, confidence=0.8, meta=None):
     return db.execute(
-        "INSERT INTO memories(kind, text, entity_ids, message_id, confidence, created_at) "
-        "VALUES(?,?,?,?,?,?)",
-        (kind, text, json.dumps(entity_ids or []), message_id, confidence, db.utcnow()),
+        "INSERT INTO memories(kind, text, entity_ids, message_id, confidence, created_at, meta) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (kind, text, json.dumps(entity_ids or []), message_id, confidence, db.utcnow(),
+         json.dumps(meta or {})),
     )
 
 

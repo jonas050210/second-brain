@@ -11,6 +11,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -156,7 +157,7 @@ def chat(body: ChatIn):
     if cmd and "action" not in cmd:
         reply = cmd.get("reply", "Done.")
         store.add_message("assistant", reply, conversation_id=cid,
-                          meta={"kind": "command"})
+                          meta={"kind": "command", "ok": cmd.get("ok", True)})
         return {"reply": reply, "remembered": [], "updates": [],
                 "is_command": True, "ok": cmd.get("ok", True), "trivial": False, **base}
 
@@ -172,10 +173,13 @@ def chat(body: ChatIn):
         res = search.answer(content, model=effective_llm_model(),
                             context="\n".join(recent))
         reply = res["text"]
+        status = _normalize_status(res["status"])
         store.add_message("assistant", reply, conversation_id=cid,
-                          meta={"kind": "answer", "status": res["status"]})
+                          meta={"kind": "answer", "status": status,
+                                "sources": res.get("sources", [])})
         return {"reply": reply, "remembered": [], "updates": [],
-                "is_answer": True, "status": res["status"], "trivial": False, **base}
+                "is_answer": True, "status": status,
+                "sources": res.get("sources", []), "trivial": False, **base}
 
     # 3. Small talk.
     if smalltalk_reply(content):
@@ -206,12 +210,11 @@ def _extract_and_reply(content, cid, msg_id, force=False, original=None):
     updates = build_updates(result)
     reply = natural_reply(original or content, remembered, result["used_fallback"])
 
-    if remembered or updates:
-        store.add_message("assistant", "", conversation_id=cid, extracted=1,
-                          meta={"updates": updates, "used_fallback": result["used_fallback"],
-                                "remembered": remembered})
-    else:
-        store.add_message("assistant", reply, conversation_id=cid, meta={"kind": "empty"})
+    store.add_message("assistant", reply, conversation_id=cid,
+                      extracted=1 if (remembered or updates) else 0,
+                      meta={"updates": updates, "used_fallback": result["used_fallback"],
+                            "remembered": remembered,
+                            "superseded": result.get("superseded", [])})
 
     return {
         "reply": reply,
@@ -222,6 +225,18 @@ def _extract_and_reply(content, cid, msg_id, force=False, original=None):
         "trivial": False,
         "conversation_id": cid,
     }
+
+
+def _normalize_status(status):
+    if status in ("answered", "known"):
+        return "known"
+    if status in ("unknown", "uncertain"):
+        return status
+    return "unknown"
+
+
+def _sse(event, payload):
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 # --------------------------------------------------------------------------
@@ -271,6 +286,27 @@ def conversations():
 def conversations_new():
     cid = store.new_conversation()
     return {"conversation_id": cid}
+
+
+class ConversationPatch(BaseModel):
+    title: Optional[str] = None
+
+
+@app.patch("/api/conversations/{cid}")
+def conversation_update(cid: int, body: ConversationPatch):
+    if not store.conversation_row(cid):
+        raise HTTPException(404, "conversation not found")
+    if body.title is not None:
+        store.touch_conversation(cid, title=body.title.strip()[:80])
+    return {"ok": True, "conversation": store.conversation_row(cid)}
+
+
+@app.delete("/api/conversations/{cid}")
+def conversation_delete(cid: int):
+    if not store.conversation_row(cid):
+        raise HTTPException(404, "conversation not found")
+    store.delete_conversation(cid)
+    return {"ok": True, "conversation_id": store.current_conversation_id()}
 
 
 @app.get("/api/conversations/{cid}/messages")
@@ -516,10 +552,62 @@ def entity_merge(body: MergeIn):
     return store.merge_entities(body.keep_id, body.drop_id)
 
 
+class RelPatch(BaseModel):
+    relation: Optional[str] = None
+    confidence: Optional[float] = None
+    status: Optional[str] = None
+
+
+@app.patch("/api/relationships/{rid}")
+def rel_update(rid: int, body: RelPatch):
+    row = store.relationship_row(rid)
+    if not row:
+        raise HTTPException(404, "relationship not found")
+    fields = {}
+    if body.relation is not None:
+        rel, _swap = store.normalize_relation(body.relation)
+        fields["relation"] = rel
+    if body.confidence is not None:
+        fields["confidence"] = max(0.0, min(1.0, body.confidence))
+    if body.status is not None:
+        fields["status"] = body.status
+    store.update_relationship(rid, **fields)
+    return {"ok": True}
+
+
 @app.delete("/api/relationships/{rid}")
 def rel_delete(rid: int):
     store.delete_relationship(rid)
     return {"ok": True}
+
+
+@app.get("/api/facts")
+def list_facts(active_only: bool = True, status: str = None, entity_id: int = None):
+    """Readable facts (relationships) from the real graph. Never fabricated."""
+    rels = store.all_relationships(active_only=False)
+    ents = {e["id"]: e for e in store.all_entities()}
+    out = []
+    for r in rels:
+        if active_only and r.get("status", "active") != "active":
+            continue
+        if status and r.get("status", "active") != status:
+            continue
+        if entity_id is not None and entity_id not in (r["source_id"], r["target_id"]):
+            continue
+        src, tgt = ents.get(r["source_id"]), ents.get(r["target_id"])
+        if not src or not tgt:
+            continue
+        out.append({
+            "id": r["id"],
+            "text": f'{src["name"]} {r["relation"]} {tgt["name"]}',
+            "source_id": r["source_id"], "target_id": r["target_id"],
+            "source": src["name"], "target": tgt["name"],
+            "relation": r["relation"], "confidence": r["confidence"],
+            "status": r.get("status", "active"),
+            "source_message_id": r.get("source_message_id"),
+            "created_at": r.get("created_at"),
+        })
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -528,11 +616,24 @@ def rel_delete(rid: int):
 
 @app.get("/api/memories")
 def memories(limit: int = 200, entity_id: int = None, kind: str = None,
-             type: str = None, conversation_id: int = None, date: str = None):
+             type: str = None, conversation_id: int = None, date: str = None,
+             entity: str = None):
     rows = store.recent_memories(limit if limit <= 2000 else 2000)
+    resolved_eid = entity_id
+    if resolved_eid is None and entity:
+        hit = store.find_entity_by_name(entity)
+        if hit:
+            resolved_eid = hit["id"]
+        else:
+            # substring match
+            ql = entity.lower()
+            for e in store.all_entities():
+                if ql in e["name"].lower():
+                    resolved_eid = e["id"]
+                    break
     out = []
     for m in rows:
-        if entity_id is not None and entity_id not in json.loads(m["entity_ids"] or "[]"):
+        if resolved_eid is not None and resolved_eid not in json.loads(m["entity_ids"] or "[]"):
             continue
         if kind and m["kind"] != kind:
             continue
@@ -557,6 +658,9 @@ class SearchIn(BaseModel):
     status: Optional[str] = None
     pinned: Optional[bool] = None
     important: Optional[bool] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    source: Optional[str] = None
 
 
 @app.post("/api/search")
@@ -564,6 +668,7 @@ def do_search(body: SearchIn):
     filters = {k: v for k, v in {
         "type": body.type, "min_confidence": body.min_confidence,
         "status": body.status, "pinned": body.pinned, "important": body.important,
+        "date_from": body.date_from, "date_to": body.date_to, "source": body.source,
     }.items() if v is not None}
     res = search.search(body.query, filters=filters)
     ans = search.answer(body.query, model=effective_llm_model(), filters=filters)
@@ -706,6 +811,14 @@ def get_settings():
         "ollama_available": ollama.available(),
         "models_installed": ollama.list_models(),
         "db_path": config.DB_PATH,
+        "privacy": {
+            "mode": "local-first",
+            "local": True,
+            "private": True,
+            "telemetry": False,
+            "cloud": False,
+            "data_leaves_machine": False,
+        },
     }
 
 
@@ -770,16 +883,78 @@ def demo():
         r = chat(ChatIn(content=line, conversation_id=cid))
         replies.append(r.get("reply", ""))
     store.touch_conversation(cid, title="Demo conversation")
-    # Clearly mark all messages and their extracted entities in this
-    # conversation as demo data (distinct from real user data).
-    db.execute("UPDATE messages SET meta=? WHERE conversation_id=?",
-               (json.dumps({"demo": True}), cid))
+    # Merge a demo flag into existing message meta (do not wipe remembered chips).
+    for m in store.conversation_messages(cid):
+        try:
+            meta = json.loads(m.get("meta") or "{}")
+        except ValueError:
+            meta = {}
+        meta["demo"] = True
+        db.execute("UPDATE messages SET meta=? WHERE id=?", (json.dumps(meta), m["id"]))
     msg_ids = [m["id"] for m in store.conversation_messages(cid)]
     if msg_ids:
         placeholders = ",".join("?" for _ in msg_ids)
-        db.execute(f"UPDATE entities SET meta=? WHERE source_message_id IN ({placeholders})",
-                   (json.dumps({"demo": True}), *msg_ids))
+        rows = db.query(
+            f"SELECT id, meta FROM entities WHERE source_message_id IN ({placeholders})",
+            tuple(msg_ids),
+        )
+        for row in rows:
+            try:
+                meta = json.loads(row.get("meta") or "{}")
+            except ValueError:
+                meta = {}
+            meta["demo"] = True
+            db.execute("UPDATE entities SET meta=? WHERE id=?", (json.dumps(meta), row["id"]))
     return {"ok": True, "replies": replies, "conversation_id": cid}
+
+
+@app.post("/api/demo/clear")
+def demo_clear():
+    """Remove only demo-marked entities and the demo conversation. Real data stays."""
+    demo_ents = db.query("SELECT id, name, norm_name FROM entities WHERE meta LIKE '%demo%'")
+    removed = 0
+    for e in demo_ents:
+        if e["norm_name"] == store.normalize_name(config.USER_ENTITY_NAME):
+            continue
+        store.delete_entity(e["id"])
+        removed += 1
+    demo_convs = db.query("SELECT DISTINCT conversation_id FROM messages WHERE meta LIKE '%demo%'")
+    for c in demo_convs:
+        if c["conversation_id"]:
+            store.delete_conversation(c["conversation_id"])
+    return {"ok": True, "entities_removed": removed}
+
+
+@app.post("/api/chat/stream")
+def chat_stream(body: ChatIn):
+    """SSE chat. Same pipeline as /api/chat; tokens are emitted as they are ready."""
+    content = (body.content or "").strip()
+
+    def generate():
+        if not content:
+            yield _sse("done", {"reply": "", "remembered": [], "trivial": True})
+            return
+        result = chat(ChatIn(content=content, conversation_id=body.conversation_id))
+        if result.get("conversation_id"):
+            yield _sse("meta", {"conversation_id": result["conversation_id"]})
+        if result.get("remembered") or result.get("updates") or result.get("superseded"):
+            yield _sse("memory", {
+                "remembered": result.get("remembered") or [],
+                "updates": result.get("updates") or [],
+                "superseded": result.get("superseded") or [],
+                "used_fallback": result.get("used_fallback"),
+            })
+        if result.get("status"):
+            yield _sse("status", {"status": result["status"]})
+        if result.get("sources"):
+            yield _sse("sources", {"sources": result["sources"]})
+        reply = result.get("reply") or ""
+        if reply:
+            yield _sse("token", {"text": reply})
+        yield _sse("done", result)
+
+    return StreamingResponse(generate(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # --------------------------------------------------------------------------

@@ -145,9 +145,8 @@ async function loadDashboard() {
   $$("#top-entities .entity-mini").forEach((el) =>
     el.addEventListener("click", () => openEntity(el.dataset.id)));
 
-  if (d.has_demo_data) {
-    toast("This database contains demo data — it's marked with a DEMO badge.");
-  }
+  const banner = $("#demo-banner");
+  if (banner) banner.style.display = d.has_demo_data ? "" : "none";
 }
 
 /* ==========================================================================
@@ -217,6 +216,22 @@ function appendMessage(role, content, opts = {}) {
   scrollChat();
 }
 
+function parseSseBuffer(buffer, onEvent) {
+  const parts = buffer.split("\n\n");
+  const rest = parts.pop();
+  for (const block of parts) {
+    let event = "message";
+    const dataLines = [];
+    for (const line of block.split("\n")) {
+      if (line.startsWith("event:")) event = line.slice(6).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+    }
+    if (!dataLines.length) continue;
+    try { onEvent(event, JSON.parse(dataLines.join("\n"))); } catch {}
+  }
+  return rest;
+}
+
 async function sendChat() {
   const input = $("#chat-input");
   const content = input.value.trim();
@@ -225,21 +240,120 @@ async function sendChat() {
   input.style.height = "auto";
   appendMessage("user", content);
   $("#chat-send").disabled = true;
+
+  const wrap = document.createElement("div");
+  wrap.className = "msg assistant";
+  const bubble = document.createElement("div");
+  bubble.className = "msg-bubble streaming";
+  wrap.appendChild(bubble);
+  $("#chat-empty").style.display = "none";
+  $("#chat-messages").appendChild(wrap);
+  scrollChat();
+
+  let reply = "";
+  let remembered = [];
+  let superseded = [];
+  let status = "";
+  let sources = [];
+
+  const finish = (r = {}) => {
+    reply = r.reply != null ? r.reply : reply;
+    remembered = r.remembered || remembered;
+    superseded = r.superseded || superseded;
+    status = r.status || status;
+    sources = r.sources || sources;
+    if (r.conversation_id) currentConversationId = r.conversation_id;
+    bubble.classList.remove("streaming");
+    bubble.textContent = reply;
+    if (status) {
+      const st = document.createElement("span");
+      st.className = "ans-status ans-" + status;
+      st.textContent = status === "answered" ? "known" : status;
+      bubble.prepend(st, document.createTextNode(" "));
+    }
+    if (remembered && remembered.length) {
+      const box = document.createElement("div");
+      box.className = "remembered-box";
+      box.innerHTML = rememberChips(remembered);
+      wrap.appendChild(box);
+      box.querySelectorAll(".remembered-chip").forEach((chip) =>
+        chip.addEventListener("click", () => openEntity(chip.dataset.id)));
+    }
+    if (superseded && superseded.length) {
+      const note = document.createElement("div");
+      note.className = "superseded-note";
+      note.textContent = "Superseded: " + superseded.join(", ");
+      wrap.appendChild(note);
+    }
+    if (sources && sources.length) {
+      const src = document.createElement("div");
+      src.className = "remembered-box";
+      src.innerHTML = `<div class="remembered-title">Sources</div>` +
+        sources.map((s) => `<span class="remembered-chip" data-id="${s.entity_id}">${esc(s.name)}</span>`).join("");
+      wrap.appendChild(src);
+      src.querySelectorAll(".remembered-chip").forEach((chip) =>
+        chip.addEventListener("click", () => openEntity(chip.dataset.id)));
+    }
+    const t = document.createElement("div");
+    t.className = "msg-time";
+    t.textContent = fmtTime(new Date().toISOString());
+    wrap.appendChild(t);
+    if (remembered && remembered.length) { loadDashboard(); buildGraph(); }
+    if (r.is_command || (remembered && remembered.length)) loadDashboard();
+    loadConversations();
+    scrollChat();
+  };
+
   try {
-    const r = await api("/chat", {
+    const res = await fetch(API + "/chat/stream", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content, conversation_id: currentConversationId }),
     });
-    if (r.conversation_id) currentConversationId = r.conversation_id;
-    appendMessage("assistant", r.reply, {
-      remembered: r.remembered,
-      superseded: r.superseded,
-      status: r.status,
-    });
-    if (r.remembered && r.remembered.length) { loadDashboard(); buildGraph(); }
-    if (r.is_command || r.remembered) loadDashboard();
+    if (!res.ok || !res.body) {
+      const r = await api("/chat", {
+        method: "POST",
+        body: JSON.stringify({ content, conversation_id: currentConversationId }),
+      });
+      finish(r);
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let donePayload = null;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      buf = parseSseBuffer(buf, (event, data) => {
+        if (event === "meta" && data.conversation_id) currentConversationId = data.conversation_id;
+        if (event === "token" && data.text) {
+          reply += data.text;
+          bubble.textContent = reply;
+          scrollChat();
+        }
+        if (event === "memory") {
+          remembered = data.remembered || [];
+          superseded = data.superseded || [];
+        }
+        if (event === "status") status = data.status || status;
+        if (event === "sources") sources = data.sources || [];
+        if (event === "done") donePayload = data;
+      });
+    }
+    finish(donePayload || { reply, remembered, superseded, status, sources });
   } catch (e) {
-    appendMessage("assistant", "⚠ " + e.message);
+    try {
+      const r = await api("/chat", {
+        method: "POST",
+        body: JSON.stringify({ content, conversation_id: currentConversationId }),
+      });
+      finish(r);
+    } catch (err) {
+      bubble.classList.remove("streaming");
+      bubble.textContent = "⚠ " + err.message;
+    }
   } finally {
     $("#chat-send").disabled = false;
     scrollChat();
@@ -261,18 +375,52 @@ $("#chat-new").addEventListener("click", async () => {
   $("#chat-messages").innerHTML = "";
   $("#chat-empty").style.display = "";
   toast("Started a new conversation");
+  loadConversations();
 });
+
+async function loadConversations() {
+  const list = $("#conv-list");
+  if (!list) return;
+  try {
+    const convs = await api("/conversations");
+    if (!convs.length) {
+      list.innerHTML = `<p class="muted">No conversations yet.</p>`;
+      return;
+    }
+    list.innerHTML = convs.map((c) => `
+      <div class="conv-item ${c.id === currentConversationId ? "active" : ""}" data-id="${c.id}">
+        <div class="conv-title">${esc(c.title || "(untitled)")}</div>
+        <div class="conv-preview">${esc(c.preview || "")}</div>
+      </div>`).join("");
+    list.querySelectorAll(".conv-item").forEach((el) =>
+      el.addEventListener("click", () => openConversation(Number(el.dataset.id))));
+    const src = $("#sf-source");
+    if (src) {
+      const cur = src.value;
+      src.innerHTML = `<option value="">Any source</option>` +
+        convs.map((c) => `<option value="${c.id}">${esc(c.title || "Conversation " + c.id)}</option>`).join("");
+      src.value = cur;
+    }
+  } catch {}
+}
+
+async function openConversation(id) {
+  currentConversationId = id;
+  $("#chat-messages").innerHTML = "";
+  $("#chat-empty").style.display = "";
+  const msgs = await api(`/conversations/${id}/messages`);
+  msgs.forEach((m) => {
+    if (m.role === "user") appendMessage("user", m.content);
+    else appendMessage("assistant", m.content, { remembered: m.remembered, kind: m.kind, status: m.status });
+  });
+  loadConversations();
+}
 
 async function loadChatHistory() {
   const convs = await api("/conversations");
-  if (!convs.length) return;
-  const latest = convs[0];
-  currentConversationId = latest.id;
-  const msgs = await api(`/conversations/${latest.id}/messages`);
-  msgs.forEach((m) => {
-    if (m.role === "user") appendMessage("user", m.content);
-    else appendMessage("assistant", m.content, { remembered: m.remembered, kind: m.kind });
-  });
+  if (!convs.length) { loadConversations(); return; }
+  currentConversationId = convs[0].id;
+  await openConversation(convs[0].id);
 }
 
 /* ==========================================================================
@@ -420,6 +568,8 @@ async function applyGraphFilters() {
   params.set("active_only", $("#gf-superseded").checked ? "false" : "true");
   if ($("#gf-pinned").checked) params.set("pinned", "true");
   if ($("#gf-important").checked) params.set("important", "true");
+  const conf = parseFloat($("#gf-confidence") && $("#gf-confidence").value);
+  if (conf) params.set("min_confidence", String(conf));
   const g = await api("/graph/filter?" + params.toString());
   cy.elements().remove();
   const nodes = g.nodes.map((n) => ({ data: { id: n.id, label: n.name, type: n.type, description: n.description, pinned: n.pinned, important: n.important, status: n.status } }));
@@ -434,6 +584,37 @@ async function applyGraphFilters() {
 }
 
 $("#graph-apply").addEventListener("click", applyGraphFilters);
+if ($("#gf-confidence")) {
+  $("#gf-confidence").addEventListener("input", (e) => {
+    const el = $("#gf-conf-val");
+    if (el) el.textContent = e.target.value;
+  });
+}
+if ($("#graph-zoom-in")) $("#graph-zoom-in").addEventListener("click", () => { if (cy) cy.zoom(cy.zoom() * 1.2); });
+if ($("#graph-zoom-out")) $("#graph-zoom-out").addEventListener("click", () => { if (cy) cy.zoom(cy.zoom() / 1.2); });
+if ($("#graph-fit")) $("#graph-fit").addEventListener("click", () => { if (cy) cy.fit(undefined, 40); });
+if ($("#graph-expand")) $("#graph-expand").addEventListener("click", expandSelectedNeighborhood);
+
+let lastFocusedId = null;
+
+async function expandSelectedNeighborhood() {
+  if (!cy) return;
+  const selected = cy.$("node:selected");
+  const id = selected.length ? selected[0].id() : lastFocusedId;
+  if (!id) { toast("Select a node first"); return; }
+  const g = await api(`/graph/neighborhood/${id}?depth=2`);
+  const existing = new Set(cy.nodes().map((n) => String(n.id())));
+  const nodes = g.nodes.filter((n) => !existing.has(String(n.id))).map((n) => ({
+    data: { id: n.id, label: n.name, type: n.type, pinned: n.pinned, important: n.important, status: n.status },
+  }));
+  const edges = g.edges.map((e) => ({ data: { id: e.id, source: e.source, target: e.target, relation: e.relation, status: e.status } }));
+  if (nodes.length || edges.length) cy.add(nodes.concat(edges));
+  const center = cy.getElementById(String(id));
+  if (center && center.length) {
+    lastFocusedId = id;
+    cy.animate({ fit: { eles: center.neighborhood().add(center), padding: 60 }, duration: 300 });
+  }
+}
 
 $("#graph-search").addEventListener("input", (e) => {
   const q = e.target.value.trim().toLowerCase();
@@ -471,6 +652,7 @@ async function loadMemory() {
   const params = new URLSearchParams();
   if (kind) params.set("kind", kind);
   if (date) params.set("date", date);
+  if (entityQ) params.set("entity", entityQ);
   const mems = await api("/memories?" + params.toString());
   const byDay = {};
   mems.forEach((m) => {
@@ -517,11 +699,14 @@ async function doSearch() {
   if ($("#sf-status").value) body.status = $("#sf-status").value;
   if ($("#sf-pinned").checked) body.pinned = true;
   if ($("#sf-important").checked) body.important = true;
+  if ($("#sf-from") && $("#sf-from").value) body.date_from = $("#sf-from").value;
+  if ($("#sf-to") && $("#sf-to").value) body.date_to = $("#sf-to").value;
+  if ($("#sf-source") && $("#sf-source").value) body.source = $("#sf-source").value;
 
   const r = await api("/search", { method: "POST", body: JSON.stringify(body) });
   const ans = $("#search-answer");
   ans.style.display = "block";
-  const stLabel = { answered: "known", unknown: "unknown", uncertain: "uncertain" }[r.status] || r.status;
+  const stLabel = { answered: "known", known: "known", unknown: "unknown", uncertain: "uncertain" }[r.status] || r.status;
   ans.innerHTML = `<div class="panel-head"><h2>Answer <span class="ans-status ans-${r.status}">${stLabel}</span></h2></div>
     <div class="panel-body">${esc(r.answer)}</div>`;
 
@@ -610,6 +795,7 @@ async function loadEntity(id) {
       ${badge(r.other_type)}
       <span class="rel-conf">${Math.round((r.confidence || 0.8) * 100)}%</span>
       <span class="ri-rel">${r.direction === "out" ? "→" : "←"} ${esc(r.relation)}</span>
+      ${r.rid ? `<button class="rel-del" data-rid="${r.rid}" title="Delete relationship">✕</button>` : ""}
     </div>`).join("");
 
   const flags = [];
@@ -703,7 +889,18 @@ async function loadEntity(id) {
   const srcLink = $("#entity-source");
   if (srcLink) srcLink.addEventListener("click", () => openSource(e.source));
   $$("#entity-inner .rel-item").forEach((el) =>
-    el.addEventListener("click", () => openEntity(el.dataset.id)));
+    el.addEventListener("click", (ev) => {
+      if (ev.target.closest(".rel-del")) return;
+      openEntity(el.dataset.id);
+    }));
+  $$("#entity-inner .rel-del").forEach((btn) =>
+    btn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      if (!confirm("Delete this relationship?")) return;
+      await api("/relationships/" + btn.dataset.rid, { method: "DELETE" });
+      toast("Relationship deleted");
+      loadEntity(id); buildGraph();
+    }));
   $("#act-edit").addEventListener("click", () => $("#entity-edit-sec").style.display = "block");
   $("#edit-cancel").addEventListener("click", () => $("#entity-edit-sec").style.display = "none");
   $("#edit-save").addEventListener("click", async () => {
@@ -726,10 +923,12 @@ async function loadEntity(id) {
   });
   $("#act-focus").addEventListener("click", () => {
     showView("graph");
+    lastFocusedId = id;
     cy.elements().addClass("dim");
     const n = cy.getElementById(String(id));
     n.removeClass("dim");
     n.neighborhood().removeClass("dim");
+    if (n && n.length) n.select();
     cy.animate({ fit: { eles: n.neighborhood().add(n), padding: 80 }, duration: 400 });
     closeEntity();
   });
@@ -794,12 +993,23 @@ async function loadSettings() {
   $("#set-merge").value = s.merge_similarity;
   $("#merge-val").textContent = s.merge_similarity;
   $("#set-auto-memory").checked = s.auto_memory;
+  if ($("#set-theme")) $("#set-theme").value = s.theme || "dark";
   $("#db-path").textContent = "Database: " + s.db_path;
   $("#ollama-info").innerHTML = s.ollama_available
     ? `<p class="hint">Ollama is <span style="color:var(--ok)">online</span>.</p>
        <p class="hint">Installed models: ${s.models_installed.map(esc).join(", ") || "none"}</p>`
     : `<p class="hint">Ollama is <span style="color:var(--danger)">offline</span> — running the built-in rule-based extractor.</p>
        <p class="hint">Start it with <code>ollama serve</code> and pull <code>qwen3:0.6b</code> + <code>nomic-embed-text</code>.</p>`;
+  const priv = s.privacy || {};
+  const pbox = $("#privacy-info");
+  if (pbox) {
+    pbox.innerHTML = `
+      <p class="hint">Architecture: <strong>${esc((priv.mode || "local-first").toUpperCase())}</strong></p>
+      <p class="hint">Local: ${priv.local === false ? "no" : "yes"} · Private: ${priv.private === false ? "no" : "yes"} · Telemetry: ${priv.telemetry ? "on" : "off"} · Cloud: ${priv.cloud ? "yes" : "none"}</p>
+      <p class="hint">Personal memory stays on this machine unless you export it yourself.</p>
+      <p class="hint">Database: <code>${esc(s.db_path || "")}</code></p>`;
+  }
+  document.body.classList.toggle("theme-light", s.theme === "light");
 }
 
 $("#set-confidence").addEventListener("input", (e) => { $("#conf-val").textContent = e.target.value; });
@@ -820,7 +1030,9 @@ $("#set-behavior-save").addEventListener("click", async () => {
     confidence_threshold: parseFloat($("#set-confidence").value),
     merge_similarity: parseFloat($("#set-merge").value),
     auto_memory: $("#set-auto-memory").checked,
+    theme: $("#set-theme") ? $("#set-theme").value : undefined,
   })});
+  if ($("#set-theme")) document.body.classList.toggle("theme-light", $("#set-theme").value === "light");
   toast("Memory behavior saved");
 });
 
@@ -833,9 +1045,18 @@ $("#reset-btn").addEventListener("click", async () => {
 
 $("#demo-btn").addEventListener("click", async () => {
   await api("/demo", { method: "POST" });
-  toast("Demo data loaded");
-  loadDashboard(); buildGraph(); loadMemory();
+  toast("Demo data loaded (marked as DEMO)");
+  loadDashboard(); buildGraph(); loadMemory(); loadConversations();
 });
+
+if ($("#demo-clear-btn")) {
+  $("#demo-clear-btn").addEventListener("click", async () => {
+    if (!confirm("Remove demo-marked entities and the demo conversation? Real memories stay.")) return;
+    const r = await api("/demo/clear", { method: "POST" });
+    toast(`Removed ${r.entities_removed || 0} demo entities`);
+    loadDashboard(); buildGraph(); loadMemory(); loadConversations();
+  });
+}
 
 /* ---- Export / Import / Backup / Summarize ---- */
 
@@ -932,6 +1153,7 @@ async function boot() {
   await loadSettings();
   loadBackupStatus();
   loadSummarizeCandidates();
+  loadConversations();
   showView("dashboard");
   setInterval(refreshStatus, 15000);
 }
