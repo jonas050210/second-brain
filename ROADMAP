@@ -31,6 +31,7 @@ The database is the source of truth.
 - Scheduled local backups (opt-in interval, default 24h)
 - Graph layouts (force / by type / from User) and relationship-type editing
 - Direct NL answers for live / work / prefer / use-of questions
+- Full first-party source archive in projekt.md
 
 ## Next (optional)
 

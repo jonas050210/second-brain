@@ -95,10 +95,14 @@ def test_frontend_assets_present():
 
 def test_root_contract_files_exist():
     for name in ("start.py", "test_overall.py", "requirements.txt",
-                 "README.md", "ROADMAP", ".env.example", ".gitignore"):
+                 "README.md", "ROADMAP", "projekt.md", ".env.example", ".gitignore"):
         assert (_ROOT / name).is_file(), f"missing required root file: {name}"
     assert not (_ROOT / "setup.py").exists()
     assert not (_ROOT / "start.bat").exists()
+    archive = (_ROOT / "projekt.md").read_text(encoding="utf-8")
+    assert "## `backend/app.py`" in archive
+    assert "## `start.py`" in archive
+    assert "## `frontend/app.js`" in archive
 
 
 # --------------------------------------------------------------------------

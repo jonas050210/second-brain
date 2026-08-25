@@ -481,7 +481,10 @@ async function openConversation(id) {
   const msgs = await api(`/conversations/${id}/messages`);
   msgs.forEach((m) => {
     if (m.role === "user") appendMessage("user", m.content);
-    else appendMessage("assistant", m.content, { remembered: m.remembered, kind: m.kind, status: m.status });
+    else appendMessage("assistant", m.content, {
+      remembered: m.remembered, kind: m.kind, status: m.status,
+      superseded: m.superseded, sources: m.sources,
+    });
   });
   loadConversations();
 }

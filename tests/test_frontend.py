@@ -124,6 +124,7 @@ def test_entity_browser_and_palette_markup():
     assert "function loadBrowse" in js
     assert "function openPalette" in js
     assert "function runGraphLayout" in js
+    assert "sources: m.sources" in js
     assert "function restore" not in js or "/backup/restore" in js
 
 

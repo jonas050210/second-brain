@@ -221,6 +221,7 @@ second-brain/
 ├── requirements.txt
 ├── README.md
 ├── ROADMAP
+├── projekt.md             # full first-party source archive
 ├── .env.example
 ├── .gitignore
 ├── backend/
