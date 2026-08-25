@@ -4,8 +4,8 @@ Every first-party file is inlined below, including tests, launcher,
 and the vendor Cytoscape build. This is documentation, not a second app.
 Live source of truth remains the individual files.
 
-Generated: 2026-08-25 15:40 UTC
-Version: 2.6.0
+Generated: 2026-08-25 15:47 UTC
+Version: 2.7.0
 Files archived: 60
 
 Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
@@ -80,9 +80,9 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
      285  .gitignore
      459  backend/.env.example
        0  backend/__init__.py
-   49469  backend/app.py
+   49879  backend/app.py
     7918  backend/backup.py
-   15980  backend/commands.py
+   16441  backend/commands.py
     8457  backend/config.py
     7835  backend/db.py
    16937  backend/export.py
@@ -94,11 +94,11 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
      242  backend/requirements-dev.txt
       66  backend/requirements.txt
    42948  backend/search.py
-   24655  backend/store.py
-    5372  backend/summarize.py
-   76716  frontend/app.js
+   25488  backend/store.py
+    7827  backend/summarize.py
+   77247  frontend/app.js
    19867  frontend/index.html
-   28722  frontend/style.css
+   28790  frontend/style.css
   373304  frontend/vendor/cytoscape.min.js
      222  launcher/__init__.py
     3553  launcher/__main__.py
@@ -111,21 +111,21 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
     9022  launcher/tray.py
      728  main.py
       91  pytest.ini
-    8564  README.md
+    9013  README.md
      165  requirements.txt
-    3358  ROADMAP
+    3427  ROADMAP
      223  run.py
     2743  secondbrain.spec
     9375  start.py
    18003  test_overall.py
     2849  tests/conftest.py
-   14532  tests/test_api.py
+   15966  tests/test_api.py
     5976  tests/test_api_phase3.py
     3318  tests/test_backup.py
-    7033  tests/test_commands.py
+    7152  tests/test_commands.py
     5750  tests/test_export.py
    10392  tests/test_extraction.py
-    5779  tests/test_frontend.py
+    5807  tests/test_frontend.py
     4805  tests/test_graph.py
     8594  tests/test_launcher.py
     3507  tests/test_migration.py
@@ -134,7 +134,7 @@ Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
     7468  tests/test_search.py
     3065  tests/test_search_advanced.py
     6837  tests/test_store.py
-    2508  tests/test_summarize.py
+    3867  tests/test_summarize.py
     1898  tests/test_tray.py
 ```
 
@@ -392,6 +392,7 @@ def health():
         "version": APP_VERSION,
         "db_ok": db.integrity_ok(),
         "auto_backup": backup.auto_backup_status(),
+        "undo_available": store.undo_available(),
     }
 
 
@@ -688,6 +689,15 @@ def conversation_update(cid: int, body: ConversationPatch):
         params.append(cid)
         db.execute(f"UPDATE conversations SET {', '.join(fields)} WHERE id=?", params)
     return {"ok": True, "conversation": store.conversation_row(cid)}
+
+
+@app.post("/api/conversations/{cid}/summarize")
+def conversation_summarize(cid: int):
+    """Recap one chat into a summary memory. Messages stay."""
+    result = summarize.summarize_conversation(cid)
+    if not result.get("ok") and result.get("error") == "conversation not found":
+        raise HTTPException(404, "conversation not found")
+    return result
 
 
 @app.get("/api/conversations/{cid}/export")
@@ -1874,6 +1884,8 @@ def is_command(text):
         return True
     if t in ("undo last", "undo that", "scratch that", "that was wrong"):
         return True
+    if re.match(r"^(?:please\s+)?summarize (?:this|the) (?:chat|conversation|thread)$", t):
+        return True
     if t.startswith("set confidence"):
         return True
     if re.match(r"^(?:delete|remove)\s+(?:the\s+)?memory\b", t):
@@ -1951,6 +1963,12 @@ def handle_command(text):
         r = store.undo_last_extract()
         return {"reply": r.get("reply") or r.get("error") or "Done.",
                 "ok": bool(r.get("ok")), "undone": r.get("undone", 0)}
+
+    if re.match(r"^(?:please\s+)?summarize (?:this|the) (?:chat|conversation|thread)$", tl):
+        from . import summarize
+        r = summarize.summarize_conversation(store.current_conversation_id())
+        return {"reply": r.get("text") or r.get("error") or "Done.",
+                "ok": bool(r.get("ok")), "summary_id": r.get("summary_id")}
 
     # ---- remember [that] X ----------------------------------------------
     m = re.match(r"(?:please\s+)?remember(?:\s+that)?\s+(.+)$", t.strip(), re.I)
@@ -4721,7 +4739,7 @@ import os
 import sys
 from pathlib import Path
 
-APP_VERSION = "2.6.0"
+APP_VERSION = "2.7.0"
 DB_NAME = "brain.db"
 
 
@@ -6597,8 +6615,47 @@ def message_by_id(mid):
     return db.query_one("SELECT * FROM messages WHERE id=?", (mid,))
 
 
+UNDO_STACK_MAX = 3
+
+
+def _read_undo_stack():
+    """Newest first. Migrates the single last_extract setting if needed."""
+    raw = db.get_setting("last_extracts")
+    stack = []
+    if raw:
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(data, list):
+                stack = [item for item in data if isinstance(item, dict)]
+        except ValueError:
+            stack = []
+    if not stack:
+        one = db.get_setting("last_extract")
+        if one:
+            try:
+                payload = json.loads(one) if isinstance(one, str) else one
+                if isinstance(payload, dict) and "new_relationships" in payload:
+                    stack = [payload]
+            except ValueError:
+                pass
+    return stack
+
+
+def _write_undo_stack(stack):
+    stack = list(stack)[:UNDO_STACK_MAX]
+    db.set_setting("last_extracts", json.dumps(stack))
+    if stack:
+        db.set_setting("last_extract", json.dumps(stack[0]))
+    else:
+        db.set_setting("last_extract", "")
+
+
+def undo_available():
+    return bool(_read_undo_stack())
+
+
 def record_last_extract(turn):
-    """Remember the last extract so Undo can supersede it. Never deletes rows."""
+    """Push this extract onto the undo stack. Never deletes rows."""
     ext = (turn or {}).get("extract") or {}
     rels = []
     for r in ext.get("relationships") or []:
@@ -6626,24 +6683,19 @@ def record_last_extract(turn):
         "new_relationships": rels,
         "at": db.utcnow(),
     }
-    db.set_setting("last_extract", json.dumps(payload))
+    stack = _read_undo_stack()
+    stack.insert(0, payload)
+    _write_undo_stack(stack)
     return payload
 
 
 def undo_last_extract():
-    """Supersede relationships from the last extract. Entities stay in history."""
-    raw = db.get_setting("last_extract")
-    if not raw:
+    """Supersede relationships from the newest extract. Entities stay in history."""
+    stack = _read_undo_stack()
+    if not stack:
         return {"ok": False, "error": "nothing to undo", "undone": 0,
                 "reply": "Nothing to undo."}
-    try:
-        payload = json.loads(raw) if isinstance(raw, str) else raw
-    except ValueError:
-        return {"ok": False, "error": "nothing to undo", "undone": 0,
-                "reply": "Nothing to undo."}
-    if not isinstance(payload, dict):
-        return {"ok": False, "error": "nothing to undo", "undone": 0,
-                "reply": "Nothing to undo."}
+    payload = stack.pop(0)
     names = []
     changed = 0
     for r in payload.get("new_relationships") or []:
@@ -6663,13 +6715,14 @@ def undo_last_extract():
     label = "Undid last extract" + (": " + "; ".join(names[:8]) if names else "")
     add_memory("command", label, entity_ids=payload.get("created_entity_ids") or [],
                message_id=payload.get("message_id"))
-    db.set_setting("last_extract", "")
+    _write_undo_stack(stack)
     if not changed:
-        return {"ok": True, "undone": 0,
+        return {"ok": True, "undone": 0, "remaining": len(stack),
                 "reply": "Nothing durable to undo from the last extract."}
     return {
         "ok": True,
         "undone": changed,
+        "remaining": len(stack),
         "reply": "Undid the last extract. " + "; ".join(names[:8]) + " (no longer active).",
     }
 ````
@@ -6770,7 +6823,7 @@ def summarize_entity(entity_id, memory_ids=None):
 
     text = " ".join(parts)
 
-    # Optionally polish wording with Ollama (only when useful).
+    # Optionally polish wording with Ollama (only when useful and grounded).
     if ollama.available():
         try:
             prompt = (
@@ -6782,7 +6835,7 @@ def summarize_entity(entity_id, memory_ids=None):
                 [{"role": "system", "content": "You summarize personal memories factually."},
                  {"role": "user", "content": prompt}],
                 temperature=0.3).strip()
-            if polished:
+            if polished and _summary_is_grounded(polished, ent, facts, mems):
                 text = polished
         except Exception:
             pass
@@ -6812,6 +6865,66 @@ def store_relationships_readable(entity_id):
         else:
             out.append(f'{r["tname"]} {r["rel"]} {r["sname"]}')
     return out
+
+
+def _summary_is_grounded(text, ent, facts, mems=None):
+    """False if the polish invents a stored entity name not in this summary."""
+    from . import search
+    allowed_facts = list(facts or [])
+    for m in mems or []:
+        if m.get("text"):
+            allowed_facts.append(m["text"])
+    res = {
+        "entities": [{"name": (ent or {}).get("name") or ""}],
+        "facts": [{"text": t} for t in allowed_facts],
+    }
+    return search.reply_is_grounded(text, res, (ent or {}).get("name") or "")
+
+
+def summarize_conversation(cid):
+    """Write a recap memory for one chat. Never deletes messages."""
+    conv = store.conversation_row(cid)
+    if not conv:
+        return {"ok": False, "error": "conversation not found"}
+    msgs = store.conversation_messages(cid)
+    user_msgs = [m for m in msgs if m.get("role") == "user" and (m.get("content") or "").strip()]
+    if not user_msgs:
+        return {"ok": False, "error": "empty conversation"}
+    mids = [m["id"] for m in msgs if m.get("id") is not None]
+    facts, eids = [], []
+    if mids:
+        placeholders = ",".join("?" for _ in mids)
+        rels = db.query(
+            "SELECT s.name sname, t.name tname, r.relation rel, r.source_id sid, r.target_id tid "
+            "FROM relationships r JOIN entities s ON s.id=r.source_id "
+            "JOIN entities t ON t.id=r.target_id "
+            f"WHERE r.source_message_id IN ({placeholders}) AND r.status='active'",
+            tuple(mids),
+        )
+        for r in rels:
+            facts.append(f'{r["sname"]} {r["rel"]} {r["tname"]}')
+            eids.extend([r["sid"], r["tid"]])
+    title = conv.get("title") or "untitled"
+    turns = len(user_msgs)
+    parts = [f'Conversation “{title}” ({turns} user turn{"s" if turns != 1 else ""}).']
+    if facts:
+        parts.append("Stored facts: " + "; ".join(facts[:12]) + ".")
+    else:
+        parts.append("No durable facts were stored from this conversation.")
+    text = " ".join(parts)
+    unique_eids = list(dict.fromkeys(eids))[:20]
+    summary_id = store.add_memory(
+        "summary", text, entity_ids=unique_eids, confidence=0.85,
+        meta={"conversation_id": cid, "source_message_ids": mids[:80]},
+    )
+    return {
+        "ok": True,
+        "summary_id": summary_id,
+        "text": text,
+        "conversation_id": cid,
+        "facts": facts[:12],
+        "messages_kept": len(msgs),
+    }
 
 
 def summarize_all(limit=10):
@@ -7305,6 +7418,7 @@ async function loadConversations() {
         <div class="conv-preview">${esc(c.preview || "")}</div>
         <button class="rel-del conv-pin" data-id="${c.id}" title="${c.pinned ? "Unpin" : "Pin"}">${c.pinned ? "★" : "☆"}</button>
         <button class="rel-del conv-arch" data-id="${c.id}" title="${c.archived ? "Unarchive" : "Archive"}">${c.archived ? "Unarch" : "Arch"}</button>
+        <button class="rel-del conv-sum" data-id="${c.id}" title="Summarize this chat">Σ</button>
         <button class="rel-del conv-export" data-id="${c.id}" title="Export markdown">↓</button>
         <button class="rel-del conv-del" data-id="${c.id}" title="Delete conversation">✕</button>
       </div>`).join("");
@@ -7335,6 +7449,15 @@ async function loadConversations() {
           method: "PATCH", body: JSON.stringify({ archived: !(row && row.archived) }),
         });
         loadConversations();
+      }));
+    list.querySelectorAll(".conv-sum").forEach((btn) =>
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        try {
+          const r = await api("/conversations/" + btn.dataset.id + "/summarize", { method: "POST" });
+          toast(r.ok ? (r.text || "Summarized") : (r.error || "Could not summarize"));
+          if (r.ok) loadMemory();
+        } catch (err) { toast(err.message); }
       }));
     list.querySelectorAll(".conv-export").forEach((btn) =>
       btn.addEventListener("click", async (ev) => {
@@ -9572,6 +9695,7 @@ button { font-family: var(--font); }
 }
 .conv-item .conv-del { position: absolute; top: 6px; right: 6px; }
 .conv-item .conv-export { position: absolute; top: 6px; right: 24px; }
+.conv-item .conv-sum { position: absolute; top: 6px; right: 96px; }
 .conv-item .conv-arch { position: absolute; top: 6px; right: 42px; font-size: 10px; }
 .conv-item .conv-pin { position: absolute; top: 6px; right: 78px; }
 .conv-item.archived { opacity: 0.55; }
@@ -9720,7 +9844,7 @@ This package does not reimplement memory, search, or the API. It only
 checks the environment and starts ``backend.app``.
 """
 
-__version__ = "2.6.0"
+__version__ = "2.7.0"
 ````
 
 ## `launcher/__main__.py`
@@ -11017,8 +11141,8 @@ filterwarnings =
 ````
 # Second Brain — Local AI Knowledge Graph
 
-A **local, private Second Brain**. You talk to it. It extracts durable facts
-into a SQLite knowledge graph, then answers later questions from that memory.
+A **local, private Second Brain** (v2.7.0). You talk to it. It extracts durable
+facts into a SQLite knowledge graph, then answers later questions from that memory.
 
 Nothing leaves the machine unless you export it. Ollama is optional.
 
@@ -11188,10 +11312,14 @@ Commands (deterministic, always hit SQLite):
 Remember · Forget · Remove · Pin · Unpin · Important · Unimportant · Merge ·
 Rename · Change · Set confidence · Stop remembering · Undo last
 
-Undo last supersedes the relationships from the previous extract. Entities stay.
+Undo last supersedes the relationships from the previous extract (stack of
+the last three). Entities stay. Say **Summarize this conversation** or click
+**Σ** on a chat: that writes a recap memory and never deletes the messages.
 
-The chat rail can search, pin, archive, and export conversations as Markdown.
-You can import a local `.txt` / `.md` / `.json` file you pick yourself.
+The chat rail can search, pin, archive, summarize, and export conversations
+as Markdown. You can import a local `.txt` / `.md` / `.json` file you pick
+yourself. Entity aliases are editable. Unlinked entities and near-duplicates
+are listed so you can merge them — nothing auto-deletes.
 
 Forgetting a preference or a “learning X” fact **supersedes** it. It does not
 silently delete history.
@@ -11235,6 +11363,8 @@ The entity panel lists near-duplicates so you can merge them yourself.
 - Restore a named local backup (creates a safety snapshot first)
 - Paste notes (plain text / markdown paragraphs) to extract memories
 - User-picked local text/markdown/JSON file ingest (never scans your disk)
+- Conversation recap (Σ / “Summarize this conversation”) — originals stay
+- Undo stack of the last three extracts (supersede, never wipe the brain)
 
 ---
 
@@ -11294,7 +11424,7 @@ numpy>=1.26
 # Second Brain — Roadmap
 
 Local-first personal AI memory. Reliability over cleverness.
-The database is the source of truth.
+The database is the source of truth. Current version: **2.7.0**.
 
 ## Done
 
@@ -11346,12 +11476,13 @@ The database is the source of truth.
 - Entity alias editor; unlinked-entity filter; duplicate finder
 - “What do I know?” and “How many …?” grounded recaps
 - Memory text search; real favicon from the EXE icon
+- Undo stack of the last three extracts
+- Conversation recap (messages kept); grounded summarizer polish
 
 ## Next (optional)
 
 - Explicit user-initiated binary/PDF ingest (needs extra parsers)
 - Code-signed Windows EXE (needs a certificate on a Windows machine)
-- Conversation-level summaries that keep every original message
 
 ## Non-goals
 
@@ -12550,9 +12681,10 @@ def test_import_notes_extracts_paragraphs(client):
 
 def test_health_reports_version(client):
     h = client.get("/api/health").json()
-    assert h.get("version") == "2.6.0"
+    assert h.get("version") == "2.7.0"
     assert h.get("db_ok") is True
     assert "auto_backup" in h
+    assert "undo_available" in h
 
 
 def test_graph_groups_endpoint(client):
@@ -12654,6 +12786,25 @@ def test_undo_last_extract_supersedes(client):
     assert again["ok"] is False
 
 
+def test_undo_stack_two_extracts(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    client.post("/api/chat", json={"content": "I live in Berlin"})
+    first = client.post("/api/undo").json()
+    assert first["ok"] is True
+    berlin = store.find_entity_by_name("Berlin")
+    uid = store.ensure_user_entity()
+    lives = [x for x in store.all_relationships()
+             if x["target_id"] == berlin["id"] and x["relation"] == "lives_in"]
+    assert lives and lives[0]["status"] == "superseded"
+    second = client.post("/api/undo").json()
+    assert second["ok"] is True
+    rust = store.find_entity_by_name("Rust")
+    learn = [x for x in store.all_relationships()
+             if x["source_id"] == uid and x["target_id"] == rust["id"]
+             and x["relation"] == "learning"]
+    assert learn and learn[0]["status"] == "superseded"
+
+
 def test_conversation_pin_and_archive(client):
     client.post("/api/chat", json={"content": "I am learning Rust"})
     convs = client.get("/api/conversations").json()
@@ -12705,6 +12856,19 @@ def test_entities_orphans_filter(client):
     names = {e["name"] for e in rows}
     assert "Lonely Island" in names
     assert "User" not in names
+
+
+def test_conversation_summarize_endpoint(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    cid = client.get("/api/conversations").json()[0]["id"]
+    before = client.get(f"/api/conversations/{cid}/messages").json()
+    r = client.post(f"/api/conversations/{cid}/summarize")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert "Rust" in body["text"]
+    after = client.get(f"/api/conversations/{cid}/messages").json()
+    assert len(after) == len(before)
 
 
 def test_conversation_export_markdown(client):
@@ -13035,6 +13199,8 @@ def test_remember_command_recognized():
     assert commands.is_command("Unimportant Rust")
     assert commands.is_command("Undo last")
     assert commands.is_command("scratch that")
+    assert commands.is_command("Summarize this conversation")
+    assert not commands.is_command("summarize my brain")
     assert not commands.is_command("that was wrong of me to skip Rust")
 
 
@@ -13782,6 +13948,7 @@ def test_entity_browser_and_palette_markup():
     assert 'id="graph-to-me"' in html
     assert 'id="browse-sort"' in html
     assert 'id="chat-undo"' in html
+    assert "conv-sum" in js
     assert 'id="import-file"' in html
     assert 'id="browse-orphans"' in html
     assert 'id="mem-q"' in html
@@ -15025,6 +15192,42 @@ def test_no_repeated_summary_of_same_cluster():
     cands = summarize.find_consolidation_candidates(min_shared=2)
     # Nebula should be skipped now that it's been summarized.
     assert not any(c["entity_name"] == "Nebula" for c in cands)
+
+
+def test_summarize_conversation_keeps_messages():
+    cid = store.new_conversation()
+    store.add_message("user", "I am learning Rust", conversation_id=cid)
+    extract.extract("I am learning Rust", source_message_id=store.conversation_messages(cid)[-1]["id"])
+    before = len(store.conversation_messages(cid))
+    r = summarize.summarize_conversation(cid)
+    assert r["ok"] is True
+    assert "Rust" in r["text"]
+    assert len(store.conversation_messages(cid)) == before
+    mem = db.query_one("SELECT * FROM memories WHERE id=?", (r["summary_id"],))
+    assert mem["kind"] == "summary"
+    meta = json.loads(mem["meta"] or "{}")
+    assert meta.get("conversation_id") == cid
+
+
+def test_summarize_conversation_empty():
+    cid = store.create_conversation("empty")
+    r = summarize.summarize_conversation(cid)
+    assert r["ok"] is False
+
+
+def test_summary_polish_drops_inventions(monkeypatch):
+    _seed_rich_entity()
+    nebula = store.find_entity_by_name("Nebula")
+    monkeypatch.setattr(summarize.ollama, "available", lambda: True)
+    monkeypatch.setattr(
+        summarize.ollama, "chat",
+        lambda *a, **k: "Nebula is a project at Google using Java.",
+    )
+    r = summarize.summarize_entity(nebula["id"])
+    assert r["ok"] is True
+    assert "Google" not in r["text"]
+    assert "Java" not in r["text"]
+    assert "Nebula" in r["text"]
 ````
 
 ## `tests/test_tray.py`

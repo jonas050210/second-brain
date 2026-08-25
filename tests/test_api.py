@@ -200,9 +200,10 @@ def test_import_notes_extracts_paragraphs(client):
 
 def test_health_reports_version(client):
     h = client.get("/api/health").json()
-    assert h.get("version") == "2.6.0"
+    assert h.get("version") == "2.7.0"
     assert h.get("db_ok") is True
     assert "auto_backup" in h
+    assert "undo_available" in h
 
 
 def test_graph_groups_endpoint(client):
@@ -304,6 +305,25 @@ def test_undo_last_extract_supersedes(client):
     assert again["ok"] is False
 
 
+def test_undo_stack_two_extracts(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    client.post("/api/chat", json={"content": "I live in Berlin"})
+    first = client.post("/api/undo").json()
+    assert first["ok"] is True
+    berlin = store.find_entity_by_name("Berlin")
+    uid = store.ensure_user_entity()
+    lives = [x for x in store.all_relationships()
+             if x["target_id"] == berlin["id"] and x["relation"] == "lives_in"]
+    assert lives and lives[0]["status"] == "superseded"
+    second = client.post("/api/undo").json()
+    assert second["ok"] is True
+    rust = store.find_entity_by_name("Rust")
+    learn = [x for x in store.all_relationships()
+             if x["source_id"] == uid and x["target_id"] == rust["id"]
+             and x["relation"] == "learning"]
+    assert learn and learn[0]["status"] == "superseded"
+
+
 def test_conversation_pin_and_archive(client):
     client.post("/api/chat", json={"content": "I am learning Rust"})
     convs = client.get("/api/conversations").json()
@@ -355,6 +375,19 @@ def test_entities_orphans_filter(client):
     names = {e["name"] for e in rows}
     assert "Lonely Island" in names
     assert "User" not in names
+
+
+def test_conversation_summarize_endpoint(client):
+    client.post("/api/chat", json={"content": "I am learning Rust"})
+    cid = client.get("/api/conversations").json()[0]["id"]
+    before = client.get(f"/api/conversations/{cid}/messages").json()
+    r = client.post(f"/api/conversations/{cid}/summarize")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert "Rust" in body["text"]
+    after = client.get(f"/api/conversations/{cid}/messages").json()
+    assert len(after) == len(before)
 
 
 def test_conversation_export_markdown(client):

@@ -170,6 +170,7 @@ def health():
         "version": APP_VERSION,
         "db_ok": db.integrity_ok(),
         "auto_backup": backup.auto_backup_status(),
+        "undo_available": store.undo_available(),
     }
 
 
@@ -466,6 +467,15 @@ def conversation_update(cid: int, body: ConversationPatch):
         params.append(cid)
         db.execute(f"UPDATE conversations SET {', '.join(fields)} WHERE id=?", params)
     return {"ok": True, "conversation": store.conversation_row(cid)}
+
+
+@app.post("/api/conversations/{cid}/summarize")
+def conversation_summarize(cid: int):
+    """Recap one chat into a summary memory. Messages stay."""
+    result = summarize.summarize_conversation(cid)
+    if not result.get("ok") and result.get("error") == "conversation not found":
+        raise HTTPException(404, "conversation not found")
+    return result
 
 
 @app.get("/api/conversations/{cid}/export")

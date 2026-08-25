@@ -622,8 +622,47 @@ def message_by_id(mid):
     return db.query_one("SELECT * FROM messages WHERE id=?", (mid,))
 
 
+UNDO_STACK_MAX = 3
+
+
+def _read_undo_stack():
+    """Newest first. Migrates the single last_extract setting if needed."""
+    raw = db.get_setting("last_extracts")
+    stack = []
+    if raw:
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(data, list):
+                stack = [item for item in data if isinstance(item, dict)]
+        except ValueError:
+            stack = []
+    if not stack:
+        one = db.get_setting("last_extract")
+        if one:
+            try:
+                payload = json.loads(one) if isinstance(one, str) else one
+                if isinstance(payload, dict) and "new_relationships" in payload:
+                    stack = [payload]
+            except ValueError:
+                pass
+    return stack
+
+
+def _write_undo_stack(stack):
+    stack = list(stack)[:UNDO_STACK_MAX]
+    db.set_setting("last_extracts", json.dumps(stack))
+    if stack:
+        db.set_setting("last_extract", json.dumps(stack[0]))
+    else:
+        db.set_setting("last_extract", "")
+
+
+def undo_available():
+    return bool(_read_undo_stack())
+
+
 def record_last_extract(turn):
-    """Remember the last extract so Undo can supersede it. Never deletes rows."""
+    """Push this extract onto the undo stack. Never deletes rows."""
     ext = (turn or {}).get("extract") or {}
     rels = []
     for r in ext.get("relationships") or []:
@@ -651,24 +690,19 @@ def record_last_extract(turn):
         "new_relationships": rels,
         "at": db.utcnow(),
     }
-    db.set_setting("last_extract", json.dumps(payload))
+    stack = _read_undo_stack()
+    stack.insert(0, payload)
+    _write_undo_stack(stack)
     return payload
 
 
 def undo_last_extract():
-    """Supersede relationships from the last extract. Entities stay in history."""
-    raw = db.get_setting("last_extract")
-    if not raw:
+    """Supersede relationships from the newest extract. Entities stay in history."""
+    stack = _read_undo_stack()
+    if not stack:
         return {"ok": False, "error": "nothing to undo", "undone": 0,
                 "reply": "Nothing to undo."}
-    try:
-        payload = json.loads(raw) if isinstance(raw, str) else raw
-    except ValueError:
-        return {"ok": False, "error": "nothing to undo", "undone": 0,
-                "reply": "Nothing to undo."}
-    if not isinstance(payload, dict):
-        return {"ok": False, "error": "nothing to undo", "undone": 0,
-                "reply": "Nothing to undo."}
+    payload = stack.pop(0)
     names = []
     changed = 0
     for r in payload.get("new_relationships") or []:
@@ -688,13 +722,14 @@ def undo_last_extract():
     label = "Undid last extract" + (": " + "; ".join(names[:8]) if names else "")
     add_memory("command", label, entity_ids=payload.get("created_entity_ids") or [],
                message_id=payload.get("message_id"))
-    db.set_setting("last_extract", "")
+    _write_undo_stack(stack)
     if not changed:
-        return {"ok": True, "undone": 0,
+        return {"ok": True, "undone": 0, "remaining": len(stack),
                 "reply": "Nothing durable to undo from the last extract."}
     return {
         "ok": True,
         "undone": changed,
+        "remaining": len(stack),
         "reply": "Undid the last extract. " + "; ".join(names[:8]) + " (no longer active).",
     }
 

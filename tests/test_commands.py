@@ -21,6 +21,8 @@ def test_remember_command_recognized():
     assert commands.is_command("Unimportant Rust")
     assert commands.is_command("Undo last")
     assert commands.is_command("scratch that")
+    assert commands.is_command("Summarize this conversation")
+    assert not commands.is_command("summarize my brain")
     assert not commands.is_command("that was wrong of me to skip Rust")
 
 

@@ -48,6 +48,8 @@ def is_command(text):
         return True
     if t in ("undo last", "undo that", "scratch that", "that was wrong"):
         return True
+    if re.match(r"^(?:please\s+)?summarize (?:this|the) (?:chat|conversation|thread)$", t):
+        return True
     if t.startswith("set confidence"):
         return True
     if re.match(r"^(?:delete|remove)\s+(?:the\s+)?memory\b", t):
@@ -125,6 +127,12 @@ def handle_command(text):
         r = store.undo_last_extract()
         return {"reply": r.get("reply") or r.get("error") or "Done.",
                 "ok": bool(r.get("ok")), "undone": r.get("undone", 0)}
+
+    if re.match(r"^(?:please\s+)?summarize (?:this|the) (?:chat|conversation|thread)$", tl):
+        from . import summarize
+        r = summarize.summarize_conversation(store.current_conversation_id())
+        return {"reply": r.get("text") or r.get("error") or "Done.",
+                "ok": bool(r.get("ok")), "summary_id": r.get("summary_id")}
 
     # ---- remember [that] X ----------------------------------------------
     m = re.match(r"(?:please\s+)?remember(?:\s+that)?\s+(.+)$", t.strip(), re.I)

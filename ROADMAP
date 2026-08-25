@@ -1,7 +1,7 @@
 # Second Brain — Roadmap
 
 Local-first personal AI memory. Reliability over cleverness.
-The database is the source of truth.
+The database is the source of truth. Current version: **2.7.0**.
 
 ## Done
 
@@ -53,12 +53,13 @@ The database is the source of truth.
 - Entity alias editor; unlinked-entity filter; duplicate finder
 - “What do I know?” and “How many …?” grounded recaps
 - Memory text search; real favicon from the EXE icon
+- Undo stack of the last three extracts
+- Conversation recap (messages kept); grounded summarizer polish
 
 ## Next (optional)
 
 - Explicit user-initiated binary/PDF ingest (needs extra parsers)
 - Code-signed Windows EXE (needs a certificate on a Windows machine)
-- Conversation-level summaries that keep every original message
 
 ## Non-goals
 

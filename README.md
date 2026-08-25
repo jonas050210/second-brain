@@ -1,7 +1,7 @@
 # Second Brain — Local AI Knowledge Graph
 
-A **local, private Second Brain**. You talk to it. It extracts durable facts
-into a SQLite knowledge graph, then answers later questions from that memory.
+A **local, private Second Brain** (v2.7.0). You talk to it. It extracts durable
+facts into a SQLite knowledge graph, then answers later questions from that memory.
 
 Nothing leaves the machine unless you export it. Ollama is optional.
 
@@ -171,10 +171,14 @@ Commands (deterministic, always hit SQLite):
 Remember · Forget · Remove · Pin · Unpin · Important · Unimportant · Merge ·
 Rename · Change · Set confidence · Stop remembering · Undo last
 
-Undo last supersedes the relationships from the previous extract. Entities stay.
+Undo last supersedes the relationships from the previous extract (stack of
+the last three). Entities stay. Say **Summarize this conversation** or click
+**Σ** on a chat: that writes a recap memory and never deletes the messages.
 
-The chat rail can search, pin, archive, and export conversations as Markdown.
-You can import a local `.txt` / `.md` / `.json` file you pick yourself.
+The chat rail can search, pin, archive, summarize, and export conversations
+as Markdown. You can import a local `.txt` / `.md` / `.json` file you pick
+yourself. Entity aliases are editable. Unlinked entities and near-duplicates
+are listed so you can merge them — nothing auto-deletes.
 
 Forgetting a preference or a “learning X” fact **supersedes** it. It does not
 silently delete history.
@@ -218,6 +222,8 @@ The entity panel lists near-duplicates so you can merge them yourself.
 - Restore a named local backup (creates a safety snapshot first)
 - Paste notes (plain text / markdown paragraphs) to extract memories
 - User-picked local text/markdown/JSON file ingest (never scans your disk)
+- Conversation recap (Σ / “Summarize this conversation”) — originals stay
+- Undo stack of the last three extracts (supersede, never wipe the brain)
 
 ---
 

@@ -495,6 +495,7 @@ button { font-family: var(--font); }
 }
 .conv-item .conv-del { position: absolute; top: 6px; right: 6px; }
 .conv-item .conv-export { position: absolute; top: 6px; right: 24px; }
+.conv-item .conv-sum { position: absolute; top: 6px; right: 96px; }
 .conv-item .conv-arch { position: absolute; top: 6px; right: 42px; font-size: 10px; }
 .conv-item .conv-pin { position: absolute; top: 6px; right: 78px; }
 .conv-item.archived { opacity: 0.55; }

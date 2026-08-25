@@ -126,6 +126,7 @@ def test_entity_browser_and_palette_markup():
     assert 'id="graph-to-me"' in html
     assert 'id="browse-sort"' in html
     assert 'id="chat-undo"' in html
+    assert "conv-sum" in js
     assert 'id="import-file"' in html
     assert 'id="browse-orphans"' in html
     assert 'id="mem-q"' in html

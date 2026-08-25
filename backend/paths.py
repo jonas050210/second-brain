@@ -21,7 +21,7 @@ import os
 import sys
 from pathlib import Path
 
-APP_VERSION = "2.6.0"
+APP_VERSION = "2.7.0"
 DB_NAME = "brain.db"
 
 

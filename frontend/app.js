@@ -476,6 +476,7 @@ async function loadConversations() {
         <div class="conv-preview">${esc(c.preview || "")}</div>
         <button class="rel-del conv-pin" data-id="${c.id}" title="${c.pinned ? "Unpin" : "Pin"}">${c.pinned ? "★" : "☆"}</button>
         <button class="rel-del conv-arch" data-id="${c.id}" title="${c.archived ? "Unarchive" : "Archive"}">${c.archived ? "Unarch" : "Arch"}</button>
+        <button class="rel-del conv-sum" data-id="${c.id}" title="Summarize this chat">Σ</button>
         <button class="rel-del conv-export" data-id="${c.id}" title="Export markdown">↓</button>
         <button class="rel-del conv-del" data-id="${c.id}" title="Delete conversation">✕</button>
       </div>`).join("");
@@ -506,6 +507,15 @@ async function loadConversations() {
           method: "PATCH", body: JSON.stringify({ archived: !(row && row.archived) }),
         });
         loadConversations();
+      }));
+    list.querySelectorAll(".conv-sum").forEach((btn) =>
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        try {
+          const r = await api("/conversations/" + btn.dataset.id + "/summarize", { method: "POST" });
+          toast(r.ok ? (r.text || "Summarized") : (r.error || "Could not summarize"));
+          if (r.ok) loadMemory();
+        } catch (err) { toast(err.message); }
       }));
     list.querySelectorAll(".conv-export").forEach((btn) =>
       btn.addEventListener("click", async (ev) => {
