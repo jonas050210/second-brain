@@ -4,11 +4,62 @@ Every first-party file is inlined below, including tests, launcher,
 and the vendor Cytoscape build. This is documentation, not a second app.
 Live source of truth remains the individual files.
 
-Generated: 2026-08-25 15:47 UTC
+Generated: 2026-08-25 15:51 UTC
 Version: 2.7.0
 Files archived: 60
 
 Omitted: `.git/`, virtualenvs, caches, user `data/brain.db`.
+
+## How everything works
+
+This is one local app. Not two. `start.py` is the Python launcher. `SecondBrain.exe` only bootstraps the same FastAPI app (`backend.app`). The database is the source of truth. The graph visualizes SQLite. RAG never invents personal facts.
+
+```
+Browser / EXE window
+    → FastAPI (backend/app.py)
+        → SQLite (data/brain.db or LOCALAPPDATA/SecondBrain)
+        → Ollama HTTP (optional: qwen3:0.6b + nomic-embed-text)
+        → rule fallback if Ollama is down
+```
+
+Chat path:
+
+```
+message
+  → command? (deterministic SQLite: pin/forget/undo/summarize…)
+  → question? (hybrid search + grounded answer)
+  → trivial filter (hello/thanks not stored)
+  → extract (Ollama JSON validated against user words + rule fallback)
+  → normalize / merge duplicates / exclusive-fact supersede
+  → persist entities + relationships + memories + source message id
+  → SSE reply (extract first, then stream)
+```
+
+Search: keyword + vector + graph + recency + confidence + multi-hop. Status is KNOWN / UNCERTAIN / UNKNOWN. Invented names are dropped.
+
+Database safety: never `_MEIPASS`, never CWD, never delete/reset/overwrite a found `brain.db`. Existing file always wins. Schema v4 is additive (conversation pin/archive). Undo supersedes relationships; entities stay. Auto-backup after memory writes, not on health.
+
+EXE: PyInstaller onefile, `console=False`, icon `launcher/secondbrain.ico`, output `dist/SecondBrain.exe` (Windows only). Tray is click-only: Open / Remember clipboard / Show / Quit. No activity watch.
+
+Tests: `pytest tests/ test_overall.py`. Playwright skips without Chromium.
+
+Live source of truth = the individual files below. This archive is documentation.
+
+## Prompt for another AI (audit / fix / improve)
+
+You are a lead engineer on Second Brain, a local FastAPI + SQLite + optional Ollama personal knowledge graph.
+
+Read `projekt.md` and the live files. Do not replace the architecture. Do not create a second app. Keep `start.py`, `test_overall.py`, `requirements.txt`, `README.md`, `ROADMAP`, `.env.example`, `.gitignore`. No `setup.py`, no `start.bat`. Never delete `brain.db`. Never implement activity/screen/window-title polling.
+
+Tasks:
+1. Find real bugs and incomplete wiring (API vs UI vs tests).
+2. Fix them with tests. Run `node --check frontend/app.js` after JS edits and `pytest tests/ test_overall.py`.
+3. Suggest only high-value improvements that fit this architecture. Reliability over cleverness.
+4. Update README.md, ROADMAP, and regenerate projekt.md if user-facing behavior changes.
+5. Stay on the current git branch. Do not invent personal memories. Do not add telemetry.
+
+Default models: `qwen3:0.6b`, `nomic-embed-text`. Offline must not crash.
+
 
 ## Table of contents
 
