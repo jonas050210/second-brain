@@ -3,7 +3,8 @@
 A **local, private Second Brain** (v2.7.0). You talk to it. It extracts durable
 facts into a SQLite knowledge graph, then answers later questions from that memory.
 
-Nothing leaves the machine unless you export it. Ollama is optional.
+Nothing leaves the machine unless you export it or configure Ollama to use a
+remote URL. Ollama is optional.
 
 ```
 Browser  →  FastAPI  →  SQLite
@@ -14,10 +15,9 @@ Browser  →  FastAPI  →  SQLite
 Reliability over cleverness. The database is the source of truth. The graph
 visualizes the database. RAG never invents personal facts.
 
-`project.md` is the compact orientation map for humans and AI agents: it lists
-files, symbols, routes, views, and tests with short descriptions. It does not
-duplicate the source. `projekt.md` remains the full generated source archive
-for compatibility and explicit deep audits.
+`ARCHITECTURE.md` is the short technical orientation for contributors and AI
+agents. The live source files remain the source of truth; it does not duplicate
+the source.
 
 ---
 
@@ -46,8 +46,6 @@ message → command? → trivial filter → extract (Ollama or rules)
 | Python | 3.11+ (3.11.9 recommended) |
 | Ollama | optional |
 | Node.js | not required to run |
-
-Target hardware: Windows 11, i7-12700F, RTX 4060 Ti 8GB, 32GB RAM.
 
 ---
 
@@ -141,8 +139,15 @@ Works from any working directory; paths are resolved from `start.py`.
 ### 5. Tests
 
 ```powershell
-python -m pip install pytest httpx
-python test_overall.py
+python -m pip install -r requirements.txt
+python -m pip install -r backend/requirements-dev.txt
+pytest tests/ test_overall.py -q
+```
+
+Browser tests are skipped unless Playwright and Chromium are installed:
+
+```powershell
+python -m playwright install chromium
 ```
 
 ---
@@ -182,8 +187,8 @@ the last three). Entities stay. Say **Summarize this conversation** or click
 
 The chat rail can search, pin, archive, summarize, and export conversations
 as Markdown; clicking a conversation title opens it, while double-clicking
-renames it. You can import a local `.txt` / `.md` / `.json` file you pick
-yourself. Entity aliases are editable. Unlinked entities and near-duplicates
+renames it. You can import a local `.txt` or `.md` file you pick yourself as
+notes. A `.json` file must be a valid Second Brain export. Entity aliases are editable. Unlinked entities and near-duplicates
 are listed so you can merge them — nothing auto-deletes. Dashboard memory
 entries open their source message, and the GUI keeps loading/error states local
 to each panel instead of failing the whole screen.
@@ -226,7 +231,7 @@ The entity panel lists near-duplicates so you can merge them yourself.
 - Imports validate the complete payload before writing; source messages,
   conversations, flags, timestamps, and source links are remapped on import
 - User relationships are remapped
-- Local backups under `data/backups/` (SQLite + JSON + MD)
+- Local backups in a `backups/` directory next to the active database (SQLite + JSON + MD)
 - Optional automatic local backups (default every 24 hours; never deletes)
 - Secrets are not exported
 - Reset requires confirmation and creates a local safety snapshot first
@@ -244,8 +249,8 @@ The entity panel lists near-duplicates so you can merge them yourself.
 
 ## Privacy
 
-Local-first. No telemetry. No cloud accounts. The only optional network call is
-the Ollama URL you configure.
+Local-first. No telemetry. No cloud accounts. The only network call is the
+Ollama URL you configure; keep it local if data must never leave the machine.
 
 ---
 
@@ -259,9 +264,7 @@ second-brain/
 ├── test_overall.py
 ├── requirements.txt
 ├── README.md
-├── ROADMAP
-├── project.md             # compact AI/human project overview
-├── projekt.md             # full first-party source archive
+├── ARCHITECTURE.md        # short contributor/AI technical overview
 ├── .env.example
 ├── .gitignore
 ├── backend/

@@ -97,21 +97,17 @@ def test_frontend_assets_present():
 
 def test_root_contract_files_exist():
     for name in ("start.py", "test_overall.py", "requirements.txt",
-                 "README.md", "ROADMAP", "project.md", "projekt.md",
-                 ".env.example", ".gitignore"):
+                 "README.md", "ARCHITECTURE.md", ".env.example", ".gitignore"):
         assert (_ROOT / name).is_file(), f"missing required root file: {name}"
     assert not (_ROOT / "setup.py").exists()
     assert not (_ROOT / "start.bat").exists()
-    overview = (_ROOT / "project.md").read_text(encoding="utf-8")
-    assert "## File map and code inventory" in overview
-    assert "## API route index" in overview
-    archive = (_ROOT / "projekt.md").read_text(encoding="utf-8")
-    assert "## `backend/app.py`" in archive
-    assert "## `start.py`" in archive
-    assert "## `frontend/app.js`" in archive
-    assert "## `launcher/secondbrain.ico`" in archive
-    assert "## `launcher/tray.py`" in archive
-    assert "## `frontend/vendor/cytoscape.min.js`" in archive
+    architecture = (_ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    assert "## Product boundaries" in architecture
+    assert "## Repository map" in architecture
+    assert "## Data-safety rules" in architecture
+    assert not (_ROOT / "ROADMAP").exists()
+    assert not (_ROOT / "project.md").exists()
+    assert not (_ROOT / "projekt.md").exists()
 
 
 # --------------------------------------------------------------------------
